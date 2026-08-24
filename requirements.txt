@@ -1,0 +1,6 @@
+# print dependencies (auto-generated 2026-08-20)
+beautifulsoup4
+pandas
+pynput
+pyperclip
+requests
