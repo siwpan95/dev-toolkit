@@ -2,7 +2,7 @@
 
 一个自包含的桌面字幕处理工具，基于 Tkinter + ffmpeg。面向中文用户，提供字幕提取、编辑、保存、烧录与翻译占位能力。
 
-> **铁律 / 自包含说明**：本工具位于 `G:\tools\desktop\subtitle\`，独立运行，**不 import 其他工具目录、不引入中心化共享核**。所有逻辑复制在自身目录内。
+> **铁律 / 自包含说明**：本工具位于 `G:\repos\subtitle`（独立仓 siwpan/subtitle），独立运行，**不 import 其他工具目录、不引入中心化共享核**。所有逻辑复制在自身目录内。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 ## 文件结构
 
 ```
-G:\tools\desktop\subtitle\
+G:\repos\subtitle\
 ├── main.py            # Tkinter GUI 入口（仅 __main__ 守卫内创建 Tk）
 ├── core.py            # 纯逻辑 + ffmpeg 封装 + 参数拼接
 ├── requirements.txt   # 依赖说明（运行时需系统安装 ffmpeg）
@@ -41,13 +41,13 @@ G:\tools\desktop\subtitle\
 
 ### 2. 启动 GUI
 ```bash
-C:/Users/13122/.workbuddy/binaries/python/versions/3.13.12/python.exe G:\tools\desktop\subtitle\main.py
+C:/Users/13122/.workbuddy/binaries/python/versions/3.13.12/python.exe G:\repos\subtitle\main.py
 ```
 > 注意：无显示器（headless）环境不要直接运行 GUI；请改用下方冒烟测试验证纯逻辑。
 
 ### 3. 冒烟测试（无需 ffmpeg / 无显示器）
 ```bash
-C:/Users/13122/.workbuddy/binaries/python/versions/3.13.12/python.exe G:\tools\desktop\subtitle\test_smoke.py
+C:/Users/13122/.workbuddy/binaries/python/versions/3.13.12/python.exe G:\repos\subtitle\test_smoke.py
 ```
 测试内容：
 - 导入 `core`；
