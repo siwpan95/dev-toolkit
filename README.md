@@ -41,7 +41,7 @@ Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN�
 
 ---
 
-## 仓库索引标注（2026-08-25 · siwpan 统一治理）
+## 仓库索引标注（2026-08-27 · siwpan 统一治理）
 
-> 计算器（master=原版，mvvm=重写版）；本地对应 G:\games\calculator。
+> 计算器（master=现行；mvvm 重写版已转 tag mvvm）；已并入街机 arcade（siwpan/arcade，games/calculator 目录）；本地对应 G:\repos\calculator。
 > 本标注为发布面统一追加，不改变原有内容。
