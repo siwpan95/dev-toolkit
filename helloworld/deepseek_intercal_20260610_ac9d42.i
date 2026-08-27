@@ -1,0 +1,12 @@
+DO ,1 <- #13
+PLEASE DO ,1 SUB #1 <- #238
+DO ,1 SUB #2 <- #108
+DO ,1 SUB #3 <- #108
+DO ,1 SUB #4 <- #112
+DO ,1 SUB #5 <- #96
+DO ,1 SUB #6 <- #194
+DO ,1 SUB #7 <- #44
+DO ,1 SUB #8 <- #32
+DO ,1 SUB #9 <- #72
+DO READ OUT ,1
+PLEASE GIVE UP
