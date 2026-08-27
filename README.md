@@ -1,45 +1,22 @@
-# 测试
+# test（原型人格洞察 · 每日一测）
 
-#### 介绍
-一个恶搞版性格测试
+基于荣格八功能与 45 种经典人物原型的每日人格测试网页（HTML 问答应用）。
 
-#### 软件架构
-软件架构说明
+## 语言 / 类型
+- 类型：静态网页问答应用（浏览器直接打开）
+- 语言：HTML + CSS + JavaScript
+- 非 Python 项目
 
+## 目录要点
+- `test.html` —— 页面入口（依次加载 style.css / questions.js / app.js）
+- `app.js` —— 主逻辑（每日次数限制、计分、结果展示）
+- `questions.js` —— 题库（128 题 × 4 选项 + 45 原型，由 gen.js 生成）
+- `gen.js` —— Node.js 题库生成脚本（`node gen.js` 重新生成 questions.js）
+- `style.css` —— 样式
 
-#### 安装教程
+## 运行方式与依赖
+- 运行：用浏览器打开 `test.html` 即可（无需服务器、无需构建）。
+- 重新生成题库：`node gen.js`
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### 使用说明
-
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### 参与贡献
-
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
-
-
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
-
-
----
-
-## 仓库索引标注（2026-08-25 · siwpan 统一治理）
-
-> JS 性格测试玩具；本地对应 G:\notpython\test。
-> 本标注为发布面统一追加，不改变原有内容。
+## 测试状态
+- 静态检查通过（未运行；纯前端页面，需浏览器打开验证）。
