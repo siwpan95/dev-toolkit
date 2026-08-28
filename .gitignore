@@ -1,0 +1,7 @@
+﻿# 打包辅助件与缓存（2026-08-28 治理）
+_launcher.py
+*.spec
+build/
+dist/
+__pycache__/
+*.pyc
