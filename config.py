@@ -32,10 +32,15 @@ CEDICT_PATH = os.path.join(
     DICT_DIR, "CC-CEDICT", "cedict_ts.u8"
 )
 
-# 缓存文件
+# 缓存文件（word/idiom 为 v2：接入 rime-ice 真实词频后必须重建）
 CHAR_INDEX_CACHE = os.path.join(CACHE_DIR, "char_index.pkl")
-WORD_INDEX_CACHE = os.path.join(CACHE_DIR, "word_index.pkl")
-IDIOM_INDEX_CACHE = os.path.join(CACHE_DIR, "idiom_index.pkl")
+WORD_INDEX_CACHE = os.path.join(CACHE_DIR, "word_index_v2.pkl")
+IDIOM_INDEX_CACHE = os.path.join(CACHE_DIR, "idiom_index_v2.pkl")
+
+# rime-ice 词频产物（build_rime_freq.py 生成；来源与许可见 README「数据来源」）
+RIME_DIR = os.path.join(DICT_DIR, "rime_ice")
+RIME_FREQ_PATH = os.path.join(RIME_DIR, "rime_freq.pkl")
+RIME_WORDS_PATH = os.path.join(RIME_DIR, "rime_words.pkl")
 
 # 用户词典
 USER_DICT_PATH = os.path.join(BASE_DIR, "user_dict.json")
@@ -80,7 +85,7 @@ MAX_INPUT_LENGTH = 64
 # ============================================================
 # 字典加载配置
 # ============================================================
-# 是否加载词语词典（word.json 约60MB，首次加载较慢）
+# 是否加载词语词典（word.json 约60MB，首次构建索引较慢；rime 词频表约14MB）
 LOAD_WORD_DICT = True
 # 是否加载成语词典
 LOAD_IDIOM_DICT = True

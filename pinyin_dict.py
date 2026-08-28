@@ -135,6 +135,45 @@ class PinyinDict:
         self._word_loaded = False
         self._idiom_loaded = False
 
+        # rime-ice 词频（惰性加载，None 表示未加载）
+        self._rime_freq = None
+        self._rime_words = None
+
+    # ---- rime-ice 词频（来源与许可见 README「数据来源」）----
+
+    def _load_rime_freq(self) -> Dict[str, int]:
+        """惰性加载 rime 词频表（词 → 权重；权重越大越常用）。缺失返回空表。"""
+        if self._rime_freq is None:
+            self._rime_freq = {}
+            if os.path.exists(config.RIME_FREQ_PATH):
+                try:
+                    with open(config.RIME_FREQ_PATH, "rb") as f:
+                        data = pickle.load(f)
+                    if isinstance(data, dict):
+                        self._rime_freq = data
+                except Exception as e:
+                    print(f"[警告] rime 词频加载失败: {e}")
+        return self._rime_freq
+
+    def _load_rime_words(self) -> Dict[str, Tuple[str, int]]:
+        """惰性加载 rime 扩充词表（词 → (拼音, 权重)）。缺失返回空表。"""
+        if self._rime_words is None:
+            self._rime_words = {}
+            if os.path.exists(config.RIME_WORDS_PATH):
+                try:
+                    with open(config.RIME_WORDS_PATH, "rb") as f:
+                        data = pickle.load(f)
+                    if isinstance(data, dict):
+                        self._rime_words = data
+                except Exception as e:
+                    print(f"[警告] rime 扩充词加载失败: {e}")
+        return self._rime_words
+
+    def _rime_rank(self, word: str) -> Optional[int]:
+        """rime 权重 → 升序排名值（权重越大排名越靠前）；未收录返回 None。"""
+        w = self._load_rime_freq().get(word)
+        return -w if w else None
+
     # ---- 单字字典 ----
 
     def load_char_dict(self, force_rebuild: bool = False):
@@ -209,6 +248,8 @@ class PinyinDict:
         print("[字典] 正在构建词语索引 (文件较大，约需30-60秒)...")
         start = time.time()
         count = 0
+        rime_hits = 0
+        known_words: set = set()
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -227,14 +268,32 @@ class PinyinDict:
             syllables = split_pinyin_spaced(pinyin)
             key = "".join(syllables)
             if key:
-                # 频率：假设常见度与词的长度和字典位置有关
-                freq = max(0, 1000 - len(word) * 10 - count % 500)
+                # 频率：rime-ice 真实词频优先（权重越大越常用），未收录回退启发式
+                rime_rank = self._rime_rank(word)
+                if rime_rank is not None:
+                    freq = rime_rank
+                    rime_hits += 1
+                else:
+                    freq = max(0, 1000 - len(word) * 10 - count % 500)
                 self._word_index[key].append((word, freq))
                 count += 1
+                known_words.add(word)
+
+        # 并入 rime 扩充词（print 词库之外的常用词，带真实词频）
+        added = 0
+        for word, (py, wt) in self._load_rime_words().items():
+            if word in known_words or len(word) > 6:
+                continue
+            syllables = split_pinyin_spaced(py)
+            key = "".join(syllables)
+            if key:
+                self._word_index[key].append((word, -wt))
+                added += 1
 
         elapsed = time.time() - start
         print(f"[字典] 词语索引完成: {len(self._word_index)} 个拼音键, "
-              f"{count} 条记录, 耗时 {elapsed:.2f}s")
+              f"{count} 条记录 (rime 词频覆盖 {rime_hits}/{count}, 扩充 {added} 条), "
+              f"耗时 {elapsed:.2f}s")
 
     # ---- 成语字典 ----
 
@@ -277,7 +336,8 @@ class PinyinDict:
             syllables = split_pinyin_spaced(pinyin)
             key = "".join(syllables)
             if key:
-                freq = max(0, 500 - count % 200)
+                rime_rank = self._rime_rank(word)
+                freq = rime_rank if rime_rank is not None else max(0, 500 - count % 200)
                 self._idiom_index[key].append((word, freq))
                 count += 1
 
