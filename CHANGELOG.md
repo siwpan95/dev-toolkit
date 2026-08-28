@@ -4,13 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.1.0] - 2026-08-28
 
 ### Changed
 
 - 候选词频升级：接入 rime-ice 词库真实词频（词/成语候选按真实使用频率排序，此前为按词典顺序的启发式值）；未收录的罕见词回退原启发式垫底。
 - 词库扩充：并入 rime-ice 中 print 词库之外的常用词约 30 万条（`build_rime_freq.py` 生成产物，权重 ≥100 截断）。
-- 缓存 v2：词/成语索引缓存重建（`word_index_v2.pkl` / `idiom_index_v2.pkl`）。
+- 缓存 v2：词/成语索引缓存重建（`word_index_v2.pkl` / `idiom_index_v2.pkl`）；`cache/` 不再入库。
 
 ### Added
 
