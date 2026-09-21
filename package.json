@@ -1,6 +1,6 @@
 {
   "name": "santi-teleprompter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "远子学姐的三题故事 · 提词器（Electron + cordis）",
@@ -16,7 +16,8 @@
     "start": "electron .",
     "web": "node src/index.js",
     "dist": "electron-builder --win nsis portable",
-    "dist:nsis": "electron-builder --win nsis"
+    "dist:nsis": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
   },
   "dependencies": {
     "cordis": "4.0.0-rc.8",

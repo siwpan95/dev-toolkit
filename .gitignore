@@ -7,3 +7,5 @@ build/
 release/
 .git.bak*/
 _resedit_apply.mjs
+scripts/data/
+参考/

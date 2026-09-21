@@ -79,6 +79,61 @@ input[type="range"] {
   border-bottom: 1px solid #222;
 }
 
+#source-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: #0d0d0d;
+  border-bottom: 1px solid #1f1f1f;
+  flex-wrap: wrap;
+}
+
+#source-bar .topic-label {
+  font-size: 13px;
+}
+
+.sources {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: #181818;
+  border: 1px solid #2c2c2c;
+  font-size: 13px;
+  color: #bbb;
+  cursor: pointer;
+  user-select: none;
+}
+
+.source-chip input {
+  margin: 0;
+  accent-color: #ffd479;
+}
+
+.source-chip[data-on="true"] {
+  border-color: #ffd479;
+  color: #ffd479;
+  background: rgba(255, 212, 121, 0.08);
+}
+
+.source-chip .count {
+  font-size: 11px;
+  color: #777;
+}
+
+.source-chip[data-on="true"] .count {
+  color: #c79b3e;
+}
+
 .topic-label {
   color: #ffd479;
   font-weight: 600;
@@ -88,10 +143,13 @@ input[type="range"] {
 .topics {
   display: flex;
   gap: 14px;
+  flex-wrap: wrap;
 }
 
 .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   padding: 8px 18px;
   background: #1c1c1c;
   border: 1px solid rgba(255, 212, 121, 0.35);
@@ -99,6 +157,19 @@ input[type="range"] {
   font-size: 22px;
   color: #ffe9b0;
 }
+
+.chip .src-tag {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: #2a2a2a;
+  color: #aaa;
+  letter-spacing: 1px;
+}
+
+.chip[data-source="literature"] .src-tag { color: #ffd479; }
+.chip[data-source="general"]    .src-tag { color: #9ec4ff; }
+.chip[data-source="meme"]       .src-tag { color: #ff9ed1; }
 
 #stage {
   flex: 1 1 auto;

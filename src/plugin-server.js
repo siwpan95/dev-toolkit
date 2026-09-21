@@ -2,6 +2,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { SOURCE_LABELS, POOL_LABELS } from './topics.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = path.join(path.resolve(__dirname, '..'), 'public')
@@ -30,7 +31,12 @@ export function serverPlugin(ctx, cfg) {
 
     // —— API ——
     if (url.pathname === '/api/topics/random') {
-      const topics = ctx.topics.randomThree()
+      // ?sources=literature,meme  只从指定词源抽取；省略 = 全部
+      const raw = url.searchParams.get('sources')
+      const sources = raw
+        ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+        : []
+      const topics = ctx.topics.randomThree(sources)
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ topics }))
       return
@@ -38,6 +44,17 @@ export function serverPlugin(ctx, cfg) {
     if (url.pathname === '/api/pools') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ pools: ctx.topics.poolsInfo() }))
+      return
+    }
+    if (url.pathname === '/api/sources') {
+      const stats = ctx.topics.stats()
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({
+        sources: ctx.topics.sources(),
+        labels: SOURCE_LABELS,
+        poolLabels: POOL_LABELS,
+        stats,
+      }))
       return
     }
     if (url.pathname === '/api/config') {
