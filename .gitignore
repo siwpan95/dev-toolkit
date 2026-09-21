@@ -4,4 +4,6 @@ npm-debug.log*
 .DS_Store
 dist/
 build/
+release/
 .git.bak*/
+_resedit_apply.mjs

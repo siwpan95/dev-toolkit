@@ -92,9 +92,19 @@ npm run web
 
 **快捷键：** `空格` 播放/暂停 · `↑/↓` 调速 · `M` 镜像 · `N` 重新出题。
 
-## 发行版（Windows 便携版）
+## 发行版（Windows）
 
-发行版以 **便携压缩包** 形式提供，无需安装、无需联网，解压即用：
+提供两种发行方式，按需选用：
+
+| 方式 | 文件 | 体积 | 适用场景 |
+| --- | --- | --- | --- |
+| **便携压缩包**（主） | `SantiTeleprompter-1.0.0-portable-win-x64.7z.001` | 约 74 MB | 免安装，解压即用 |
+| **NSIS 安装程序**（补充） | `SantiTeleprompter-Setup-1.0.0.exe` | 约 73.5 MB | 标准安装流程，带卸载项 |
+| **单文件便携版**（补充） | `SantiTeleprompter-1.0.0-portable.exe` | 约 67 MB | 单个 exe，免解压直接运行 |
+
+### 方式一：便携压缩包（推荐）
+
+无需安装、无需联网，解压即用：
 
 ```
 SantiTeleprompter-1.0.0-portable-win-x64.7z.001
@@ -114,7 +124,20 @@ SantiTeleprompter-1.0.0-portable-win-x64.7z.001
 
 > 可对照 `SantiTeleprompter-1.0.0-portable-win-x64.sha256.txt` 校验下载完整性。
 
-**自己构建便携包：**
+### 方式二：NSIS 安装程序（electron-builder）
+
+标准 Windows 安装向导，自动创建开始菜单与桌面快捷方式，支持自定义安装目录：
+
+1. 前往 [Releases](https://gitee.com/siwpan/santi-teleprompter/releases) 下载
+   `SantiTeleprompter-Setup-1.0.0.exe`
+2. 双击运行，按向导完成安装
+3. 从开始菜单或桌面快捷方式启动
+
+卸载可通过「设置 → 应用」或安装目录下的 `Uninstall 远子学姐的三题故事提词器.exe`。
+
+### 自行构建发行版
+
+**构建便携压缩包（零额外依赖）：**
 
 ```bash
 # 1) 安装依赖（含 electron 二进制，建议国内镜像）
@@ -129,9 +152,47 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 7za a -t7z -mx=5 -v90m dist/SantiTeleprompter-1.0.0-portable-win-x64.7z build/SantiTeleprompter
 ```
 
-> 说明：本项目亦配置了 `electron-builder`（`npm run dist`，可生成 NSIS 安装程序）。
-> 但由于其依赖树庞大、在受限网络下安装缓慢，官方发行采用上述 **便携压缩包** 方案：
-> 直接复用已安装的 Electron 运行时 + 应用代码，零额外下载、体积可控（约 74 MB）。
+**构建 NSIS 安装程序与单文件便携版（electron-builder）：**
+
+```bash
+ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
+npm run dist          # 同时产出 nsis + portable
+# 或仅构建其一：
+npm run dist:nsis     # SantiTeleprompter-Setup-1.0.0.exe
+```
+
+产物输出至 `release/`：
+
+```
+release/
+├── SantiTeleprompter-Setup-1.0.0.exe      # NSIS 安装程序
+├── SantiTeleprompter-Setup-1.0.0.exe.blockmap
+└── SantiTeleprompter-1.0.0-portable.exe   # 单文件便携版
+```
+
+**构建说明与已知约束：**
+
+- `package.json` 的 `build.win.signAndEditExecutable` 设为 `false`：跳过 rcedit 重写 exe 版本信息。
+  该步骤仅影响 exe 的「属性 → 详细信息」展示，不影响功能；在部分 Windows 环境下 rcedit
+  会因文件瞬时占用而报 `Unable to commit changes`，关闭后可稳定构建。
+- 首次构建会下载 `winCodeSign`、`nsis`、`nsis-resources` 等二进制工具包（约 7.6 MB）。
+  若官方源缓慢，可设 `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`。
+- `winCodeSign` 包含两条 macOS 符号链接（`libcrypto.dylib`、`libssl.dylib`）。
+  在无符号链接权限的 Windows 上，7-Zip 解压会报「客户端没有所需的特权」并以 exit 2 结束，
+  导致 electron-builder 中止。**这些文件与 Windows 构建无关**，解决办法是让 7-Zip 跳过它们：
+
+  ```bash
+  # 7zip-bin 支持环境变量切换到系统 PATH 中的 7za（7zip-bin/index.js）
+  export USE_SYSTEM_7ZA=true
+  # 并在 PATH 前置一个包装脚本，拦截 winCodeSign 解压并追加排除参数：
+  #   -x!darwin\10.12\lib\libcrypto.dylib
+  #   -x!darwin\10.12\lib\libssl.dylib
+  ```
+
+- 两个目标（nsis / portable）共用同一个 `release/win-unpacked` 目录。
+  若在同一命令中连续构建，建议先移出旧的 `win-unpacked`，
+  或分两次调用 `npm run dist:nsis` / electron-builder `--win portable`，
+  以确保 exe 元数据步骤从干净状态开始。
 
 ## 技术栈
 
