@@ -1,0 +1,6 @@
+# 远子学姐的三题故事 · 提词器 配置
+port: 8787
+prompter:
+  defaultSpeed: 45      # 滚动速度 px/秒
+  defaultFontSize: 48   # 默认字号 px
+  mirror: false         # 是否默认开启镜像（适配提词玻璃）

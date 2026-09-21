@@ -1,0 +1,19 @@
+{
+  "name": "santi-teleprompter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "远子学姐的三题故事 · 提词器（Electron + cordis）",
+  "main": "src/electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "web": "node src/index.js"
+  },
+  "dependencies": {
+    "cordis": "4.0.0-rc.8",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}
