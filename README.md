@@ -94,10 +94,10 @@ npm run web
 
 ## 发行版（Windows 便携版）
 
-发行版以 **便携 ZIP** 形式提供，无需安装、无需联网，解压即用：
+发行版以 **便携压缩包** 形式提供，无需安装、无需联网，解压即用：
 
 ```
-SantiTeleprompter-1.0.0-portable-win-x64.zip
+SantiTeleprompter-1.0.0-portable-win-x64.7z.001
 └── SantiTeleprompter/
     ├── 启动提词器.bat          # 双击即可启动
     ├── 使用说明.txt
@@ -105,7 +105,14 @@ SantiTeleprompter-1.0.0-portable-win-x64.zip
     └── resources/app/          # 应用代码 + 词库 + 运行时依赖
 ```
 
-**使用方式：** 解压后双击 `启动提词器.bat`（或 `SantiTeleprompter.exe`）即可。
+**下载与使用：**
+
+1. 前往 [Releases](https://gitee.com/siwpan/santi-teleprompter/releases) 下载
+   `SantiTeleprompter-1.0.0-portable-win-x64.7z.001`
+2. 用 7-Zip / WinRAR / Bandizip 解压（单卷，直接解压）
+3. 进入 `SantiTeleprompter` 目录，双击 `启动提词器.bat`（或 `SantiTeleprompter.exe`）
+
+> 可对照 `SantiTeleprompter-1.0.0-portable-win-x64.sha256.txt` 校验下载完整性。
 
 **自己构建便携包：**
 
@@ -113,13 +120,18 @@ SantiTeleprompter-1.0.0-portable-win-x64.zip
 # 1) 安装依赖（含 electron 二进制，建议国内镜像）
 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 
-# 2) 组装便携目录（脚本见下），再用任意 zip 工具打包
+# 2) 将 node_modules/electron/dist 复制为便携目录，
+#    并在其 resources/app/ 下放入 public、src、pools、cordis.yml
+#    与运行时依赖（cordis、yaml、cosmokit、@standard-schema/spec）
 #    产物目录：build/SantiTeleprompter/
+
+# 3) 用 7-Zip 打包为单卷
+7za a -t7z -mx=5 -v90m dist/SantiTeleprompter-1.0.0-portable-win-x64.7z build/SantiTeleprompter
 ```
 
-> 说明：本项目亦可接入 `electron-builder` 生成 NSIS 安装程序（`npm run dist`）。
-> 但由于 `electron-builder` 依赖树庞大、在受限网络下安装缓慢，官方发行采用
-> **便携 ZIP** 方案：直接复用已安装的 Electron 运行时 + 应用代码，零额外下载。
+> 说明：本项目亦配置了 `electron-builder`（`npm run dist`，可生成 NSIS 安装程序）。
+> 但由于其依赖树庞大、在受限网络下安装缓慢，官方发行采用上述 **便携压缩包** 方案：
+> 直接复用已安装的 Electron 运行时 + 应用代码，零额外下载、体积可控（约 74 MB）。
 
 ## 技术栈
 
