@@ -1,7 +1,0 @@
-docs: 补充 README 与 LICENSE（MIT），加入便携发行与构建说明
-
-- 新增 README.md：项目简介、功能、目录结构、运行/构建与发行说明
-- 新增 LICENSE（MIT，Copyright (c) 2026 siwpan）
-- .gitignore 增补 dist/、build/
-- package.json 增加 author 与 electron-builder 构建配置
-- electron-main.js：改为先启动后端服务再创建窗口（更健壮）
