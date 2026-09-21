@@ -1,0 +1,50 @@
+{
+  "name": "santi-teleprompter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "远子学姐的三题故事 · 提词器（Electron + cordis）",
+  "author": "siwpan",
+  "main": "src/electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "web": "node src/index.js",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "cordis": "4.0.0-rc.8",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.siwpan.santi.teleprompter",
+    "productName": "远子学姐的三题故事提词器",
+    "executableName": "SantiTeleprompter",
+    "copyright": "Copyright © 2026 siwpan",
+    "files": [
+      "package.json",
+      "cordis.yml",
+      "public/**/*",
+      "src/**/*",
+      "pools/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": "x64"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "SantiTeleprompter-Setup-${version}.${ext}"
+    }
+  }
+}

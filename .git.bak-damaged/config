@@ -1,0 +1,13 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
+[user]
+	email = santi@local
+	name = santi
+[remote "origin"]
+	url = https://gitee.com/siwpan/santi-teleprompter.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
