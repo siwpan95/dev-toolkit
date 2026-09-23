@@ -1,5 +1,8 @@
 # print
 
+> 仓库：<https://gitee.com/siwpan/print> ｜ 许可：MIT（见 [LICENSE](LICENSE)）
+> 注：文中 <PATH> 为路径占位符，请替换为你本机实际的目录 / 可执行文件路径。
+
 中文拼音输入法 —— 基于本地字典与字体、用 Python 实现的拼音输入法（tkinter 候选窗口 + 全局键盘监听）。
 
 ## 语言 / 类型
@@ -20,11 +23,11 @@
 
 - 上游：[rime-ice](https://github.com/iDvel/rime-ice)（GPLv3）的 `cn_dicts/base.dict.yaml`、`ext.dict.yaml`；组成词库：华宇野风词库、THUOCL、现代汉语常用词表、腾讯词向量（上游多源合并去重、按「拼音顺序、权重逆序」调频）。
 - 用法：词/成语候选按词频降序；rime 未收录的罕见词回退启发式垫底；print 词库之外的 rime 常用词（约 30 万条，权重 ≥100）并入候选。
-- 生成：`python build_rime_freq.py`（自动探测 `G:\shurufa\full_compiled\cn_dicts`，或 `--src` 指定）→ `dictionary/rime_ice/{rime_freq.pkl, rime_words.pkl, SOURCE.txt}`；产物**不入版本库**，随安装包 datas 分发。
+- 生成：`python build_rime_freq.py`（自动探测 `<PATH>`，或 `--src` 指定）→ `dictionary/rime_ice/{rime_freq.pkl, rime_words.pkl, SOURCE.txt}`；产物**不入版本库**，随安装包 datas 分发。
 - 许可口径：程序本体 MIT；词频数据沿用 rime-ice 口径（GPLv3），随包 `dictionary/rime_ice/SOURCE.txt` 供溯源。
 
 ## 运行方式与依赖
-- 运行：`F:\Python314\python.exe main.py`（右 Shift 切换中英文，输入拼音后数字/空格选词）。
+- 运行：`python main.py`（右 Shift 切换中英文，输入拼音后数字/空格选词）。
 - 依赖：`pynput`、`pyperclip`。详见 `requirements.txt`。
 
 ## 测试状态
