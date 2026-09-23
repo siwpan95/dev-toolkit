@@ -1,7 +1,10 @@
 # pdf
 
+> 仓库：<https://gitee.com/siwpan/pdf> ｜ 许可：MIT（见 [LICENSE](LICENSE)）
+> 注：文中 <PATH> 为路径占位符，请替换为你本机实际的目录 / 可执行文件路径。
+
 简易 PDF 阅读器 —— 基于 PyMuPDF 与 Pillow 的 Tkinter 桌面 PDF 阅读器，附若干物理教材 PDF 样本。
-独立仓 siwpan/pdf（本地 `G:\repos\pdf`）。
+独立仓 siwpan/pdf（本地 `<PATH>`）。
 
 ## 语言 / 类型
 - Python（Tkinter GUI）
@@ -12,7 +15,7 @@
 - `requirements.txt` —— 依赖声明
 
 ## 运行方式与依赖
-- 运行：`F:\Python314\python.exe main.py`
+- 运行：`python main.py`
 - 依赖：`PyMuPDF`（fitz）、`Pillow`。
 
 ## 测试状态
