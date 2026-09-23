@@ -1,9 +1,12 @@
 # renamer —— 正则批量重命名工具
 
+> 仓库：<https://gitee.com/siwpan/renamer> ｜ 许可：MIT（见 [LICENSE](LICENSE)）
+> 注：文中 <PATH> 为路径占位符，请替换为你本机实际的目录 / 可执行文件路径。
+
 一个**自包含**的桌面小工具，用正则表达式对文件夹内的文件进行批量重命名。
 图形界面基于 Tkinter（中文 UI），核心逻辑纯标准库实现，无第三方依赖。
 
-> 设计原则：**复制优于共享**。本工具完全独立运行于 `G:\repos\renamer`，
+> 设计原则：**复制优于共享**。本工具完全独立运行于 `<PATH>`，
 > 不 import 其它工具目录，也不依赖任何中心化共享核。
 
 ---
@@ -30,7 +33,7 @@
 ## 文件结构
 
 ```
-G:\repos\renamer\
+<PATH>
 ├── main.py          # Tkinter GUI 入口
 ├── core.py          # 纯逻辑层（preview_renames / apply_renames），无 GUI、无第三方
 ├── requirements.txt # 空依赖说明（纯 stdlib）
