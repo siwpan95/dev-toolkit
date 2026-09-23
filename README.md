@@ -1,5 +1,7 @@
 # Yasuo — 通用文件加密/压缩工具
 
+> 仓库：<https://gitee.com/siwpan/yasuo> ｜ 许可：MIT（见 [LICENSE](LICENSE)）
+
 全功能文件加密与压缩工具，支持对称加密和无损压缩。
 
 ## 功能
