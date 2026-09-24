@@ -30,6 +30,6 @@ await loader.await()
 console.log('[smoke] entries count =>', [...loader.root.tree.entries()].length)
 console.log('[smoke] ctx.demo2.ping() =>', ctx.demo2?.ping())
 
-await ctx.dispose()
+// 注：Cordis 根 Context 没有 dispose()（根 fiber dispose=restart），冒烟测试直接退出即可
 console.log('[smoke] disposed OK')
 process.exit(0)

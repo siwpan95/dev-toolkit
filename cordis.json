@@ -2,10 +2,7 @@
   "entries": [
     {
       "id": "table",
-      "name": "./src/plugins/table.mjs",
-      "config": {
-        "pythonBin": "E:/Python314/python.exe"
-      }
+      "name": "./src/plugins/table.mjs"
     }
   ]
 }

@@ -1,14 +1,29 @@
 // demo.mjs —— 端到端演示：用 Cordis 内核 + OpenPyXL 生成一张表格
-// 数据源：E:\desk\_extract\cordis-main\packages（即"文件夹中的源码"）
+// 数据源（可选）：环境变量 CORDIS_PKG_SRC 或 --src 指向的目录（含若干子目录，每个有 package.json）
+//   不设 / 找不到时，回退到内置样例数据，保证任何机器上都能跑通演示。
 // 产物：output/cordis-packages.xlsx（Packages 表 + Hello 表演示表）
 import { bootHost, stopHost } from './boot.mjs'
 import { readdirSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const SRC = 'E:/desk/_extract/cordis-main/packages'
 const OUT = resolve(__dirname, '../output/cordis-packages.xlsx')
+
+const { values: args } = parseArgs({
+  options: {
+    src: { type: 'string', short: 's' },
+  },
+})
+
+// 内置样例（无外部源码目录时回退，保证演示可复现、与机器无关）
+const SAMPLE_PACKAGES = [
+  ['cordis', '4.0.0-rc.10', 'A modern framework for building extensible applications'],
+  ['@cordisjs/plugin-loader', '1.0.0-rc.7', 'Declarative plugin host for Cordis'],
+  ['@cordisjs/plugin-logger-console', '1.0.0', 'Console exporter for Cordis logger'],
+  ['openpyxl', '3.1.5', 'A Python library to read/write Excel 2010 xlsx/xlsm files'],
+]
 
 async function scanPackages(dir) {
   const rows = []
@@ -44,8 +59,16 @@ async function main() {
 
   mkdirSync(dirname(OUT), { recursive: true })
 
-  const pkgRows = await scanPackages(SRC)
-  console.log('[demo] 扫描到 Cordis 包：', pkgRows.length, '个')
+  // 数据源可配置：--src 或环境变量 CORDIS_PKG_SRC；缺失则回退内置样例
+  const SRC = args.src || process.env.CORDIS_PKG_SRC
+  let pkgRows
+  if (SRC && existsSync(SRC)) {
+    pkgRows = await scanPackages(SRC)
+    console.log('[demo] 扫描目录 ' + SRC + ' -> Cordis 包：', pkgRows.length, '个')
+  } else {
+    pkgRows = SAMPLE_PACKAGES
+    console.log('[demo] 未指定/找不到外部源码目录（CORDIS_PKG_SRC），使用内置样例：', pkgRows.length, '条')
+  }
 
   // ---- 表 1：Cordis 包清单 ----
   await table.createWorkbook(OUT, 'Packages')

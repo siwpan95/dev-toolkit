@@ -10,8 +10,8 @@
     "smoke": "node src/_smoke.mjs"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "siwpan",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@cordisjs/plugin-loader": "^1.0.0-rc.7",

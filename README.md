@@ -1,10 +1,15 @@
 # Cordis 表格小应用（Cordis 内核 + OpenPyXL）
 
-基于 **Cordis（Node.js 插件框架，来自 `E:\desk\cordis-main.zip`）作为应用内核**，
+基于 **Cordis（Node.js 插件框架）作为应用内核**，
 表格能力交给 **Python + OpenPyXL**，两者通过 **JSON-RPC stdio 桥** 连接。
 
 > 即 `cordis-host-python-bridge` 模式：Cordis 宿主负责编排/插件化，Python 进程负责实际
 > 的 Excel 读写；宿主不碰 Excel，Python 不碰编排。
+
+## 许可证
+
+本项目以 **MIT License** 开源（见 [LICENSE](./LICENSE)），版权归 `siwpan` 所有。
+可自由使用、修改、分发，仅需保留版权与许可声明。
 
 ## 架构
 
@@ -26,25 +31,31 @@ Cordis 宿主 (Node.js)
 
 ## 源码来源
 
-`E:\desk` 里的 `cordis-main.zip` 解压后即为 Cordis 框架源码（cordis `4.0.0-rc.10`，与本项目
-`npm install` 的内核版本字节级一致）。项目内核由 npm 安装；`vendor/cordis-main/` 仅是本机保留的
-框架源码镜像，**已被 `.gitignore` 排除，不随仓库分发**（第三方内核源码不入仓，见仓库卫生门禁）。
+Cordis 内核由 `npm install` 安装（`cordis` / `@cordisjs/plugin-loader` / `@cordisjs/plugin-logger-console`），
+与 `package.json` 中声明的版本一致。`vendor/cordis-main/` 仅用于在本机保留一份框架源码镜像，
+**已被 `.gitignore` 排除，不随仓库分发**（第三方内核源码不入仓，见仓库卫生门禁）。
 
 ## 运行
 
 ```bash
-cd E:\desk\cordis-table-app
+# 进入本项目根目录（任意路径均可，无盘符硬编码）
 npm install            # 装 cordis / loader / logger-console（已装可跳过）
 
-# 演示：扫描 Cordis 源码包 -> 生成 output/cordis-packages.xlsx（含两张表）
+# 演示：生成 output/cordis-packages.xlsx（含两张表）
 npm start
 
 # 通用生成：JSON -> xlsx
 npm run gen -- --json sample.json --out output/sample.xlsx --sheet Data
 ```
 
-> Python 解释器默认 `E:/Python314/python.exe`（已带 openpyxl 3.1.5），可用环境变量
-> `PYTHON_BIN` 或 `cordis.json` 里 table 条目的 `config.pythonBin` 覆盖。
+> **Python 解释器自动发现**（无需硬编码路径，换机即用）：
+> 1. `cordis.json` 里 table 条目的 `config.pythonBin`；
+> 2. 环境变量 `PYTHON_BIN`；
+> 3. 扫描系统 `PATH` + 常见安装目录（Windows `C:/Python3XX`、`%LOCALAPPDATA%/Programs/Python/...`，
+>    macOS/Linux `/usr/bin/python3`、`/opt/homebrew/bin/python3` 等），挑第一个能 `import openpyxl` 的；
+> 4. 兜底回退到 `PATH` 里的 `python3` / `python`。
+>
+> 推荐直接 `pip install openpyxl`（≥3.1），然后让程序自动发现即可。
 
 ## 设计要点（与 Cordis rc.10 实测一致）
 
@@ -58,14 +69,16 @@ npm run gen -- --json sample.json --out output/sample.xlsx --sheet Data
 
 ```
 cordis-table-app/
+├─ LICENSE                   MIT 许可证
 ├─ cordis.json              插件清单（声明式入口）
 ├─ python/rpc_server.py     OpenPyXL 工作者（JSON-RPC over stdio）
 ├─ src/
 │  ├─ boot.mjs              宿主启动/关停（入口共用）
 │  ├─ core/bridge.mjs       JsonRpcBridge（stdio 行分隔 JSON-RPC）
-│  ├─ plugins/table.mjs     TableService（挂 ctx.table）
-│  ├─ demo.mjs              端到端演示（Cordis 包清单表）
-│  └─ cli.mjs               通用 JSON -> xlsx 工具
-├─ vendor/cordis-main/      Cordis 内核源码（来自 E:\desk）
-└─ output/                 生成的 xlsx 产物
+│  ├─ plugins/table.mjs     TableService（挂 ctx.table，含 Python 自发现）
+│  ├─ demo.mjs              端到端演示（包清单表 + 演示表）
+│  ├─ cli.mjs               通用 JSON -> xlsx 工具
+│  └─ _smoke.mjs            冒烟测试（Cordis 内核可用性）
+├─ vendor/cordis-main/      Cordis 内核源码镜像（可选，gitignore 排除）
+└─ output/                 生成的 xlsx 产物（gitignore 排除）
 ```

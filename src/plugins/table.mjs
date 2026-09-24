@@ -4,17 +4,92 @@
 import { Service } from 'cordis'
 import { JsonRpcBridge } from '../core/bridge.mjs'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
+import { existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPT = resolve(__dirname, '../../python/rpc_server.py')
 
+// 自发现 Python 解释器（全程不硬编码任何本机盘符）：
+//   1) cordis.json 里 table 条目的 config.pythonBin（显式优先）
+//   2) 环境变量 PYTHON_BIN
+//   3) 扫描 PATH + 常见安装目录，挑第一个能 `import openpyxl` 的
+//   4) 兜底回退到 PATH 里的 python3 / python（让其自行报缺依赖，错误信息更明确）
+// 换机 / 换系统 / 装到任意盘都能直接用，无需改代码。
+const WINDOWS_COMMON = [
+  'C:/Python314/python.exe',
+  'C:/Python313/python.exe',
+  'C:/Python312/python.exe',
+  'C:/Python311/python.exe',
+  'D:/Python314/python.exe',
+  'D:/Python313/python.exe',
+]
+const POSIX_COMMON = [
+  '/usr/bin/python3',
+  '/usr/local/bin/python3',
+  '/opt/homebrew/bin/python3',
+  '/usr/bin/python',
+]
+
+function pathCandidates() {
+  const out = []
+  const pathEnv = process.env.PATH || ''
+  const sepCh = process.platform === 'win32' ? ';' : ':'
+  const names = process.platform === 'win32'
+    ? ['python.exe', 'python3.exe', 'pythonw.exe']
+    : ['python3', 'python']
+  for (const dir of pathEnv.split(sepCh)) {
+    if (!dir) continue
+    for (const n of names) {
+      const p = resolve(dir, n)
+      try { if (existsSync(p)) out.push(p) } catch { /* ignore */ }
+    }
+  }
+  return out
+}
+
+function commonCandidates() {
+  if (process.platform === 'win32') {
+    const localApp = process.env.LOCALAPPDATA || ''
+    const extra = []
+    if (localApp) {
+      // Microsoft Store / 官方安装器常见落点
+      extra.push(resolve(localApp, 'Programs/Python/Python314/python.exe'))
+      extra.push(resolve(localApp, 'Programs/Python/Python313/python.exe'))
+      extra.push(resolve(localApp, 'Programs/Python/Python312/python.exe'))
+    }
+    return [...WINDOWS_COMMON, ...extra]
+  }
+  return POSIX_COMMON
+}
+
+function canImportOpenpyxl(bin) {
+  try {
+    execSync('"' + bin + '" -c "import openpyxl"', { stdio: 'ignore', timeout: 8000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function resolvePythonBin(config) {
   if (config && config.pythonBin) return config.pythonBin
   if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN
-  // 本机已装 OpenPyXL 3.1.5 的解释器；找不到再退化到 PATH 里的 python
-  const candidates = ['E:/Python314/python.exe', 'C:/Python314/python.exe', 'python3', 'python']
-  return candidates[0]
+
+  const candidates = [...pathCandidates(), ...commonCandidates(), 'python3', 'python']
+  const seen = new Set()
+  let firstExisting = null
+  for (const c of candidates) {
+    if (!c || seen.has(c)) continue
+    seen.add(c)
+    // 裸命令名（python3/python）由操作系统 PATH 解析，直接探活
+    if (c.includes(sep) && !existsSync(c)) continue
+    if (canImportOpenpyxl(c)) return c
+    if (!firstExisting) firstExisting = c
+  }
+  // 没有任何一个带 openpyxl：回退到首个探活对象（让它去报缺依赖，错误信息更明确）
+  return firstExisting || 'python3'
 }
 
 export class TableService extends Service {
@@ -36,7 +111,7 @@ export class TableService extends Service {
       this.pid = pid
     })
     bridge.onExit = (code) => {
-      ctx.logger.debug('python worker exited (code ' + code + ')')
+      this.ctx?.logger?.debug?.('python worker exited (code ' + code + ')')
     }
     return () => {
       bridge.stop()
