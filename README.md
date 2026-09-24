@@ -1,0 +1,71 @@
+# Cordis 表格小应用（Cordis 内核 + OpenPyXL）
+
+基于 **Cordis（Node.js 插件框架，来自 `E:\desk\cordis-main.zip`）作为应用内核**，
+表格能力交给 **Python + OpenPyXL**，两者通过 **JSON-RPC stdio 桥** 连接。
+
+> 即 `cordis-host-python-bridge` 模式：Cordis 宿主负责编排/插件化，Python 进程负责实际
+> 的 Excel 读写；宿主不碰 Excel，Python 不碰编排。
+
+## 架构
+
+```
+Cordis 宿主 (Node.js)
+  ├─ Context                      src/boot.mjs       进程根上下文
+  ├─ @cordisjs/plugin-loader      声明式插件宿主（读 cordis.json 的 entries）
+  ├─ ConsoleExporter              日志导出器（否则 loader 失败静默）
+  └─ TableService extends Service 挂到 ctx.table     src/plugins/table.mjs
+        └─ JsonRpcBridge (stdio)  src/core/bridge.mjs
+              └─ python/rpc_server.py   OpenPyXL 工作者（零依赖 stdlib 协议层）
+```
+
+- `cordis.json` 是插件清单（唯一条目入口）：`{ "entries": [ { id, name, config } ] }`，
+  其中 `name` 是相对项目根（baseUrl）的插件模块路径。
+- 通过 loader 加载的插件 = `TableService`（构造器插件），它 `provide('table')`，对外暴露
+  `ctx.table` 的一系列表格方法（createWorkbook / writeRows / styleHeader / readSheet / save ...）。
+- 这些方法经 `JsonRpcBridge` 以"一行一 JSON-RPC"转发给 Python worker，由 OpenPyXL 执行。
+
+## 源码来源
+
+`E:\desk` 里的 `cordis-main.zip` 解压后即为 Cordis 框架源码（cordis `4.0.0-rc.10`，与本项目
+`npm install` 的内核版本字节级一致）。项目内核由 npm 安装；`vendor/cordis-main/` 仅是本机保留的
+框架源码镜像，**已被 `.gitignore` 排除，不随仓库分发**（第三方内核源码不入仓，见仓库卫生门禁）。
+
+## 运行
+
+```bash
+cd E:\desk\cordis-table-app
+npm install            # 装 cordis / loader / logger-console（已装可跳过）
+
+# 演示：扫描 Cordis 源码包 -> 生成 output/cordis-packages.xlsx（含两张表）
+npm start
+
+# 通用生成：JSON -> xlsx
+npm run gen -- --json sample.json --out output/sample.xlsx --sheet Data
+```
+
+> Python 解释器默认 `E:/Python314/python.exe`（已带 openpyxl 3.1.5），可用环境变量
+> `PYTHON_BIN` 或 `cordis.json` 里 table 条目的 `config.pythonBin` 覆盖。
+
+## 设计要点（与 Cordis rc.10 实测一致）
+
+- `ctx.plugin()` / `loader.create()` 的效果是**异步执行**的，注册后必须 `await` 一次，服务才会挂上。
+- Cordis **没有 `ctx.stop()`**；根 fiber 的 dispose 语义是"重启"。正确关停 = 逆序 `await entry.fiber.dispose()`
+  顶层入口，触发各服务的清理函数（此处 = 杀掉 Python worker），再兜底强杀。
+- Python worker 的 stdout **只走 JSON-RPC**，所有日志/异常栈走 stderr，避免污染协议通道。
+- 每个 RPC 方法 try/except 兜住，返回 JSON-RPC error，保证子进程不死。
+
+## 目录
+
+```
+cordis-table-app/
+├─ cordis.json              插件清单（声明式入口）
+├─ python/rpc_server.py     OpenPyXL 工作者（JSON-RPC over stdio）
+├─ src/
+│  ├─ boot.mjs              宿主启动/关停（入口共用）
+│  ├─ core/bridge.mjs       JsonRpcBridge（stdio 行分隔 JSON-RPC）
+│  ├─ plugins/table.mjs     TableService（挂 ctx.table）
+│  ├─ demo.mjs              端到端演示（Cordis 包清单表）
+│  └─ cli.mjs               通用 JSON -> xlsx 工具
+├─ vendor/cordis-main/      Cordis 内核源码（来自 E:\desk）
+└─ output/                 生成的 xlsx 产物
+```

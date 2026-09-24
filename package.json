@@ -1,0 +1,21 @@
+{
+  "name": "cordis-table-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/demo.mjs",
+    "demo": "node src/demo.mjs",
+    "gen": "node src/cli.mjs",
+    "smoke": "node src/_smoke.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@cordisjs/plugin-loader": "^1.0.0-rc.7",
+    "@cordisjs/plugin-logger-console": "^1.0.0",
+    "cordis": "^4.0.0-rc.10"
+  }
+}

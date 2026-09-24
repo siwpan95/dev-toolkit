@@ -1,0 +1,5 @@
+[
+  { "name": "cordis", "role": "内核", "score": 95 },
+  { "name": "openpyxl", "role": "表格引擎", "score": 90 },
+  { "name": "json-rpc", "role": "桥接协议", "score": 88 }
+]
