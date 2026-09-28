@@ -1,0 +1,33 @@
+# 统一换行：仓库内一律 LF，避免 Windows 上 CRLF 反复改动的噪声
+# 2026-09-28 补：本机 system 级 core.autocrlf=true，与 LF blob 冲突会产生
+# "git diff 为空却报 modified" 的幻影改动（repo_hygiene H8）；本文件显式钉住 eol=lf 以消除它。
+* text=auto eol=lf
+
+# 明确按文本处理并保持 LF
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+*.sh    text eol=lf
+
+# 二进制：不做任何转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.mp3   binary
+*.wav   binary
+*.ogg   binary
+*.flac  binary
+*.zip   binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.pdf   binary
