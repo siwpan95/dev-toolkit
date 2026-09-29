@@ -19,7 +19,10 @@ MIT License（见 [LICENSE](./LICENSE)），版权归 `siwpan` 所有。
 ```bash
 npm install            # 只装 cordis / loader / logger-console（已装可跳过）
 npm run pom            # 启动番茄钟，自动打开 http://127.0.0.1:5173/
-npm run smoke          # 冒烟测试（内核 + 番茄钟端到端）
+npm run smoke          # 冒烟测试（内核 + 番茄钟端到端，零外部依赖）
+npm run smoke:ui       # 真实浏览器界面验收（用系统 Edge/Chrome + CDP，零新增依赖；没浏览器自动跳过）
+npm run verify         # 上面两个一起跑
+npm run bench:export   # 导出基线：3000 条会话的耗时/内存实测
 ```
 
 桌面壳（可选，需要先 `npm install electron`）：
@@ -37,6 +40,7 @@ Windows 双击即用：`pomodmer.bat`（依赖缺失会自动 `npm install`）�
 ```bash
 POMODMER_CONFIG=cordis.with-xlsx.json npm run pom   # 强制启用（缺 Python 时报表会明确报错）
 POMODMER_NO_XLSX=1 npm run pom                      # 主动关闭（不想让 Python 被拉起时）
+POMODMER_TABLE_TIMEOUT_MS=60000 npm run pom         # 表格调用超时（默认 15s，慢机器/超大工作簿可调大）
 node src/pom.mjs --config cordis.table.json         # 只挂表格服务，不挂番茄钟
 ```
 
@@ -267,7 +271,8 @@ pomodmer/
 ├─ cordis.json              插件清单（默认：store + timer + http）
 ├─ cordis.table.json        插件清单（可选：仅 table，xlsx 能力）
 ├─ cordis.with-xlsx.json    插件清单（可选：番茄钟 + table + report，启用周报）
-├─ tools/                   表格能力三件套的同步工具与来源锁（sync-table-kit.mjs / table-kit.json / table-kit.lock.json）
+├─ tools/                   表格三件套同步（sync-table-kit.mjs / table-kit.json / table-kit.lock.json）
+│                           + ui-smoke.mjs（真实浏览器界面验收）+ bench-export.mjs（导出基线）
 ├─ pomodmer.bat             自愈式启动器（Windows 双击即用）
 ├─ electron/                main.cjs 主进程 / start.mjs 启动器 / make-icon.mjs + icon.png
 ├─ web/                     index.html / app.js / style.css（零框架前端）

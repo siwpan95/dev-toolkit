@@ -90,6 +90,12 @@ export class HttpService extends Service {
       return await this._static(res, path)
     } catch (e) {
       this.ctx.logger.warn('http: %s %s 失败 %s', req.method, path, e.message)
+      // 响应头可能已经发出去了（导出/下载这类"先 writeHead 再干活"的路由）：
+      // 那时再写 500 只会抛 ERR_HTTP_HEADERS_SENT，把真正的错误盖掉。能收尾就收尾。
+      if (res.headersSent) {
+        try { res.end() } catch { /* 客户端早就断了 */ }
+        return
+      }
       return this._json(res, 500, { error: e.message })
     }
   }
@@ -318,7 +324,17 @@ export class HttpService extends Service {
   }
 
   _broadcast(event, data) {
-    for (const res of this.clients) this._send(res, event, data)
+    // 单个客户端写失败（页面刚关、socket 已断）不能让整个广播/整个请求报错：
+    // 曾经就是这样 —— 广播里的异常冒到 _handle 的 catch，而那时响应头已经发出去了，
+    // 于是 catch 想再写一个 500，抛出 ERR_HTTP_HEADERS_SENT。
+    for (const res of this.clients) {
+      try {
+        this._send(res, event, data)
+      } catch (e) {
+        this.ctx?.logger?.debug?.('http: SSE 客户端写入失败，已剔除（%s）', e.message)
+        this.clients.delete(res)
+      }
+    }
   }
 
   // ---------- 静态资源 ----------

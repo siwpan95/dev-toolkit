@@ -331,7 +331,7 @@ async function main() {
       { id: 'store', name: './src/plugins/store.mjs', config: { file: storeFile } },
       { id: 'timer', name: './src/plugins/timer.mjs' },
       { id: 'http', name: './src/plugins/http.mjs', config: { host: '127.0.0.1', port: 0, open: false } },
-      { id: 'table', name: './src/plugins/table.mjs' },
+      { id: 'table', name: './src/plugins/table.mjs', config: { timeoutMs: 7000 } },
       { id: 'report', name: './src/plugins/report.mjs', config: { outDir: dir.replace(/\\/g, '/') } },
     ],
   }, null, 2))
@@ -497,6 +497,43 @@ async function main() {
     const legacy = await json(req(base3 + '/api/report', 'POST', { days: 7 }))
     ok(legacy.status === 200 && typeof legacy.data.file === 'string',
       'POST /api/report 仍返回磁盘路径（老用法不破）', legacy.status + ' ' + (legacy.data.file || ''))
+
+    console.log('\n=== 11g. P5：worker 出问题时宿主不陪葬（超时配置 + 崩溃自愈）===')
+    // 超时值取 7000 而不是压到 1 秒：这里验的是"配置有没有传到桥上"，不是"超时能不能触发"
+    // （超时/宽限的机制由权威源 _smoke_bridge.mjs 用假 worker 确定性地验）。
+    // 压到 1 秒的话，机器繁忙时冷启动就可能超过预算 —— 那是测试太苛刻，不是被测代码有问题。
+    ok(ctx3.table.bridge.timeoutMs === 7000, '插件 config.timeoutMs 传到桥上',
+      String(ctx3.table.bridge.timeoutMs))
+    ok(ctx3.table.bridge.coldStartGraceMs > 0, '冷启动宽限生效（新 worker 第一笔调用不算进超时预算）',
+      String(ctx3.table.bridge.coldStartGraceMs))
+    // b) worker 崩溃后：桥不留死管道引用，下一次调用自动拉起新进程
+    const pidBefore = ctx3.table.pid
+    ctx3.table.bridge.child.kill('SIGKILL')
+    await sleep(400)
+    ok(ctx3.table.bridge.child === null, 'worker 崩溃后桥置为"未启动"（不会往死管道里写干等超时）',
+      String(ctx3.table.bridge.child))
+    const alive2 = await ctx3.table.ping()
+    const pidAfter = ctx3.table.pid
+    ok(!!alive2 && !!alive2.openpyxl, '崩溃后 ping 自动成功（新 worker 已拉起）', JSON.stringify(alive2))
+    ok(pidAfter && pidAfter !== pidBefore, 'pid 确实换了新进程', pidBefore + ' -> ' + pidAfter)
+    // c) 恢复后整条导出链路仍然可用（不是"能 ping 但导不出来"）
+    const rep2 = await ctx3.report.weekly({ days: 3 })
+    ok(existsSync(rep2.file), '崩溃自愈后周报仍能生成', rep2.file)
+
+    console.log('\n=== 11h. SSE 客户端断开后下载路由不能被带崩（回归：ERR_HTTP_HEADERS_SENT）===')
+    // 复现路径：导出路由是"先 writeHead 再广播"，而广播遇上已断开的 SSE 客户端就会抛；
+    // 异常冒到顶层 catch 时响应头已经发出去了，旧代码在那里抛 ERR_HTTP_HEADERS_SENT，
+    // 把一次正常的下载变成一次 500（而且用户完全看不出所以然）。
+    const dead = http.get(base3 + '/api/events', () => {})
+    dead.on('error', () => {})
+    await sleep(300)
+    dead.destroy()
+    await sleep(200)
+    const dl2Path = join(dir, 'after-sse-dead.xlsx')
+    const dl2 = await download(base3 + '/api/export?format=xlsx', dl2Path)
+    ok(dl2.status === 200 && readFileSync(dl2Path).subarray(0, 2).toString() === 'PK',
+      'SSE 客户端断开后仍能正常下载 xlsx（旧代码：500 / headers-sent）', String(dl2.status))
+    ok((await json(get(base3 + '/api/state'))).status === 200, '宿主仍正常服务（异常没有扩散）')
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }

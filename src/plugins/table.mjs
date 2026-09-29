@@ -203,19 +203,28 @@ export class TableService extends Service {
     super(ctx, 'table')
     this.config = config || {}
     const pythonBin = resolvePythonBin(this.config)
-    this.bridge = new JsonRpcBridge(pythonBin, SCRIPT)
-    this.pid = null
+    // 调用超时：配置项优先，其次环境变量，最后用桥的默认值（15s）。
+    // 超大工作簿导出确实可能慢，慢机器可以调大：POMODMER_TABLE_TIMEOUT_MS=60000
+    const timeoutMs = Number(this.config.timeoutMs) || Number(process.env.POMODMER_TABLE_TIMEOUT_MS) || undefined
+    this.bridge = new JsonRpcBridge(pythonBin, SCRIPT, { timeoutMs })
+  }
+
+  // worker pid 是**派生状态**，不缓存：worker 会因为崩溃/超时被换掉，
+  // 缓存一份必然过期（踩过：崩溃自愈后 pid 还指着死进程，日志与排查全被带偏）。
+  get pid() {
+    return this.bridge && this.bridge.child ? this.bridge.child.pid : null
   }
 
   // Service.init：返回清理函数（fiber dispose 时执行 -> 杀掉 python worker）
   [Service.init]() {
     const bridge = this.bridge
-    const ready = bridge.start()
-    ready.then((pid) => {
-      this.pid = pid
-    })
+    bridge.start()
     bridge.onExit = (code) => {
       this.ctx?.logger?.debug?.('python worker exited (code ' + code + ')')
+    }
+    // 超时/写入失败会自动重启：日志里必须看得见，否则"偶发失败一次、重试就好了"永远查不出根因
+    bridge.onRestart = (reason, count) => {
+      this.ctx?.logger?.warn?.('table: python worker 重启（%s），累计 %d 次', reason, count)
     }
     return () => {
       bridge.stop()

@@ -144,6 +144,8 @@ pomodmer.bat                   # Windows 双击即用（缺依赖自动 npm inst
 | `POMODMER_CONFIG` | 指定插件清单（优先于自动探测） |
 | `POMODMER_NO_XLSX=1` | 主动关闭表格能力（不拉起 Python） |
 | `POMODMER_TRACE` | 打开计时循环的耗时日志（`timer: tick cost=…`） |
+| `POMODMER_TABLE_TIMEOUT_MS` | 表格调用超时（毫秒，默认 15000）；也可用插件配置 `table.config.timeoutMs`，慢机器/超大工作簿可调大 |
+| `POMODMER_BROWSER` | 仅 `npm run smoke:ui`：指定用于界面验收的浏览器可执行文件路径 |
 | `PYTHON_BIN` | 指定 Python 解释器（优先于自发现；也可用配置项 `table.config.pythonBin`） |
 | `CORDIS_PKG_SRC` | 仅 `npm run demo`：指定要扫描的源码目录 |
 
@@ -192,6 +194,9 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 | 命令 | 说明 |
 |---|---|
 | `npm run smoke` | 冒烟：`src/_smoke.mjs`（内核）+ `src/_smoke_pom.mjs`（番茄钟与表格能力端到端） |
+| `npm run smoke:ui` | **真实浏览器**界面验收（`tools/ui-smoke.mjs`）：系统 Edge/Chrome + CDP，零新增依赖；没浏览器则跳过 |
+| `npm run verify` | `smoke` + `smoke:ui` 一起跑 |
+| `npm run bench:export [-- --sessions 3000 --days 180]` | 导出基线：造 N 条会话 → 报耗时/文件大小/RSS → 同 TZ 往返必须 0 新增 |
 | `npm run gen -- --json x.json --out o.xlsx --sheet Data --header` | 通用 JSON → xlsx（数组的数组或对象数组自动取表头） |
 | `npm run demo` | 端到端演示：扫描 Cordis 包清单生成 xlsx 并读回校验 |
 | `npm run icon` | 生成 Electron 图标 |
@@ -211,11 +216,16 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 ## 10. 测试与验收
 
 - `npm run smoke` → 期望 **ALL PASS（EXIT=0）**：`src/_smoke.mjs`（Cordis 内核，6 项输出）+
-  `src/_smoke_pom.mjs`（**25 个测试节次 + 结果汇总，121 处 `ok(...)` 断言**），
+  `src/_smoke_pom.mjs`（**27 个测试节次 + 结果汇总，129 处 `ok(...)` 断言**），
   覆盖启动 → 状态 → 设置 → 计时流转 → 跳过/作废 → 任务 CRUD → 静态资源与路径穿越 →
   SSE → 任务归属 → 中断 CRUD → 统计 → 导出导入 → 主题 → 落盘与重启恢复 →
   周报 xlsx → xlsx 数据形态 → 联合套件能力 → 全量导出 → 回灌（预览/幂等/往返不翻倍）→
-  导出面（scope/days）→ 资产自检（含文档存在性）→ 来源锁 → 自动启用决策。
+  导出面（scope/days）→ worker 超时与崩溃自愈 → SSE 断开后下载不被带崩 →
+  资产自检（含文档存在性）→ 来源锁 → 自动启用决策。
+- 权威源 `cordis-table-app` 另有 `src/_smoke_bridge.mjs`（**12 条**，已并入它的 `npm test`）：
+  用"会按需装死的假 worker"确定性验证超时、重启、崩溃自愈与冷启动宽限。
+- `npm run smoke:ui` → 真实浏览器界面验收 11 条（详见 §11 第 9 条）。
+- `npm run bench:export` → 导出耗时/内存基线（实测：3000 条会话 429ms / 107KB / RSS +11MB）。
 - 权威源 `cordis-table-app`：`npm test`（内核冒烟 + 地图演示 + 程序化生成 + DonJon 互通往返 600 格比对）。
 - 数据落 `os.tmpdir()`、端口由系统分配，冒烟不污染真实 `data/store.json`、不抢端口。
 
@@ -225,15 +235,15 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 
 | # | 限制 / 风险 | 影响 |
 |---|---|---|
-| 1 | `JsonRpcBridge.call()` **没有超时**，worker 卡住时 Promise 永不 settle | 导出/回灌请求会永久挂起，UI 停在"正在生成…"，只能重启宿主；**尚未修** |
-| 2 | 单 worker、调用串行 | 一次大导出会阻塞同一 worker 上的其它表格调用 |
-| 3 | Python 侧 `WORKBOOKS` 按 path 常驻内存 | 长期运行且频繁导入会缓慢占用内存（`close` 会顺带落盘，故未主动调用） |
-| 4 | xlsx 时间只有秒精度 | 回灌改用 ±2 秒容差去重；日期按**本机时区**渲染，跨时区/DST 未专门测试 |
+| 1 | ~~`JsonRpcBridge.call()` 没有超时~~ **已修（P5）** | 现在每次调用都有超时（默认 15s，可用 `table.config.timeoutMs` 或 `POMODMER_TABLE_TIMEOUT_MS` 调整），并给**新 worker 的第一笔调用**额外冷启动宽限（默认 10s：那笔账是解释器启动 + openpyxl 导入，不该算进调用预算）。**卡住**→超时后 reject 并杀掉重启 worker；**崩溃**→桥自动置为"未启动"，下一次调用直接拉起新进程。不自动重试（重试有副作用），错误信息会写明"已重启，请重试"；重启同时打 warn 日志 |
+| 2 | 单 worker、调用串行 | 一次大导出会阻塞同一 worker 上的其它表格调用（实测 3000 条会话导出 429ms，影响可忽略） |
+| 3 | Python 侧 `WORKBOOKS` 按 path 常驻内存 | 长期运行且频繁导入会缓慢占用内存（`close` 会顺带落盘，故未主动调用；实测 3000 条会话导出 RSS 62→73MB） |
+| 4 | xlsx 时间只有**秒精度**、且存的是**本地墙上时间（无时区偏移）** | 回灌改用 ±2 秒容差去重。**同机同 TZ 往返 0 漂移**；但**跨时区导入会整体平移**（实测：上海导出 → UTC 机器导入 = +480 分钟，正好等于时差）。DST 跳变/回拨时刻渲染正确（实测 0s 漂移）。可选修法：导出时在隐藏表记 `tzOffsetMinutes`，导入按它还原 |
 | 5 | 回灌只认本应用导出的表头名 | 外来自定义表头需先改列名（或后续加列映射配置） |
 | 6 | 回灌**不做删除** | Excel 里删掉的行不会从库里消失（有意为之，避免误删历史）；要清空请用 JSON 替换式导入 |
 | 7 | 回灌的 `plannedMs` 用 `actualMs` 兜底 | xlsx 没有"计划时长"列，故导入的会话"实际/计划"恒为 1:1 |
 | 8 | 数据是单文件 JSON，无多实例锁 | 同时运行两个宿主指向同一 `data/store.json` 会互相覆盖 |
-| 9 | 无浏览器端点击级自动化测试 | 冒烟覆盖 HTTP 与静态自检；UI 交互靠手工验证 |
+| 9 | ~~无浏览器端点击级自动化测试~~ **已补（可选跑）** | `npm run smoke:ui` 用系统 Edge/Chrome + CDP（Node 22 内置 WebSocket，**零新增依赖**）驱动真实页面，11 条断言：首屏渲染、点「开始」后文案与倒计时都在动、按钮可用性与服务端探测一致、任务添加链路、CDP 直接塞 xlsx 走完回灌预览+确认、全程无 JS 异常。找不到浏览器时自动跳过 |
 
 ---
 
