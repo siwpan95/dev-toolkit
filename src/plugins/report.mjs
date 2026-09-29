@@ -1,12 +1,13 @@
 // ReportService —— 周报导出（P2），挂到 ctx.report
 // 复用既有资产：ctx.table（Cordis -> JSON-RPC stdio -> Python OpenPyXL），宿主自己不碰 Excel。
 // table 是**可选依赖**：不 inject，调用时才 ctx.get('table')，缺失给出可执行的修复提示。
-// 启用方式：POMODMER_CONFIG=cordis.with-xlsx.json（需要 Python + openpyxl）。
+// 启用方式：启动时探测到 Python + openpyxl 就自动带上（boot.mjs 的 resolveConfigPath），
+// 也可用 POMODMER_CONFIG=cordis.with-xlsx.json 强制启用 / POMODMER_NO_XLSX=1 主动关闭。
 import { Service } from 'cordis'
 import { resolve, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 
-const NO_TABLE_MSG = 'xlsx 导出需要 table 插件：请用 POMODMER_CONFIG=cordis.with-xlsx.json 启动（需要 Python + openpyxl）'
+const NO_TABLE_MSG = 'xlsx 导出需要 table 插件：当前清单没挂表格能力（未探测到 Python + openpyxl，或用 POMODMER_NO_XLSX=1 主动关闭）。装好 Python + openpyxl 后重启即自动启用，也可 POMODMER_CONFIG=cordis.with-xlsx.json 强制启用'
 
 export class ReportService extends Service {
   static provide = 'report'

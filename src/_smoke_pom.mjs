@@ -2,7 +2,8 @@
 // 覆盖：启动 -> 状态 -> 设置 -> 开始/暂停冻结/继续 -> 到点自动流转 -> 跳过/作废 -> 任务 CRUD
 //       -> 会话落库 -> 静态资源与穿越防护 -> SSE -> 重启恢复（进程被杀不静默补时）
 // 数据落 os.tmpdir()，端口由系统分配（port: 0），不污染真实 data/store.json、不抢端口。
-import { bootHost, stopHost } from './boot.mjs'
+import { bootHost, stopHost, resolveConfigPath } from './boot.mjs'
+import { probeTableWorker } from './plugins/table.mjs'
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -146,6 +147,11 @@ async function main() {
   ok(trav.status === 403, '路径穿越被拒绝 -> 403', String(trav.status))
   const nope = await json(get(base + '/api/nope'))
   ok(nope.status === 404, '未知 API -> 404', String(nope.status))
+  // 表格能力不在场时（本清单不含 table/report），探测接口必须说清"为什么没有"：
+  // 只回一个环境变量名是不够的 —— 现在自动探测才是默认路径，用户需要知道是没装、还是被关。
+  const rep0 = await json(req(base + '/api/report', 'GET'))
+  ok(rep0.status === 200 && rep0.data.available === false, '未挂报表插件时 /api/report 探测为不可用')
+  ok(typeof rep0.data.hint === 'string' && rep0.data.hint.length > 0, '探测接口给出可读原因', rep0.data.hint)
 
   console.log('\n=== 9. SSE 推送 ===')
   // tick 只在"正在计时"时推送（暂停时状态静止，本就不该有 tick）——先让番茄跑起来
@@ -301,6 +307,33 @@ async function main() {
   'Electron 桌面壳：主进程 + 启动器 + 图标生成脚本 + 图标就位')
   const electronBin = existsSync('node_modules/electron/dist/electron.exe') || existsSync('node_modules/electron/dist/electron')
   console.log('  [info] Electron 运行时：' + (electronBin ? '已安装，可用 npm run electron' : '未安装（可选项，不影响主功能）'))
+
+  console.log('\n=== 13. 表格能力自动启用决策（既有 OpenPyXL 资产不再靠"记得设环境变量"）===')
+  // 本机探测结果决定自动清单；断言的是"决策与探测一致"这条不变量，
+  // 所以在装了 Python+openpyxl 的机器和没装的机器上都成立。
+  const probe = probeTableWorker(null, { timeoutMs: 2500, budgetMs: 4000 })
+  console.log('  [info] 本机探测：openpyxl=%s bin=%s anyBin=%s', probe.openpyxl, probe.bin, probe.anyBin)
+  const auto = resolveConfigPath({})
+  ok(auto.path === (probe.openpyxl ? 'cordis.with-xlsx.json' : 'cordis.json'),
+    '自动清单与探测结果一致（能跑表格能力就带上）', auto.path)
+  ok(!!auto.reason && auto.reason.length > 0, '决策带可读原因（日志可解释）', auto.reason)
+  ok(resolveConfigPath({ config: 'cordis.table.json' }).path === 'cordis.table.json',
+    '显式 --config 优先于自动探测')
+
+  const envBackup = { cfg: process.env.POMODMER_CONFIG, off: process.env.POMODMER_NO_XLSX }
+  try {
+    process.env.POMODMER_CONFIG = 'cordis.json'
+    ok(resolveConfigPath({}).path === 'cordis.json', 'POMODMER_CONFIG 优先于自动探测')
+    delete process.env.POMODMER_CONFIG
+    process.env.POMODMER_NO_XLSX = '1'
+    const off = resolveConfigPath({})
+    ok(off.path === 'cordis.json', 'POMODMER_NO_XLSX=1 可主动关闭自动启用', off.reason)
+  } finally {
+    if (envBackup.cfg === undefined) delete process.env.POMODMER_CONFIG
+    else process.env.POMODMER_CONFIG = envBackup.cfg
+    if (envBackup.off === undefined) delete process.env.POMODMER_NO_XLSX
+    else process.env.POMODMER_NO_XLSX = envBackup.off
+  }
 
   console.log('\n=== 结果 ===')
   console.log(failed === 0 ? '  ALL PASS' : '  FAILED: ' + failed + ' 项')

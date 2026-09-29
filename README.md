@@ -28,14 +28,22 @@ npm run electron       # Electron 桌面版：托盘 / 置顶 / Ctrl+Alt+Space �
 ```
 
 Windows 双击即用：`pomodmer.bat`（依赖缺失会自动 `npm install`）。
-带 xlsx 周报能力启动：`POMODMER_CONFIG=cordis.with-xlsx.json npm run pom`（需要 Python + openpyxl）。
+
+**xlsx 表格能力自动启用**：启动时探测本机 Python + openpyxl，探到就把表格/报表插件一并挂上
+（`cordis.with-xlsx.json`），探不到就安静退回纯番茄钟，两种机器都不用改配置。
+日志里会打印这次选了哪个清单以及原因。要强制启用/关闭：
+
+```bash
+POMODMER_CONFIG=cordis.with-xlsx.json npm run pom   # 强制启用（缺 Python 时报表会明确报错）
+POMODMER_NO_XLSX=1 npm run pom                      # 主动关闭（不想让 Python 被拉起时）
+node src/pom.mjs --config cordis.table.json         # 只挂表格服务，不挂番茄钟
+```
 
 启动参数：
 
 ```bash
 node src/pom.mjs --port 8080        # 换端口（或环境变量 POMODMER_PORT）
 node src/pom.mjs --no-open          # 不自动开浏览器（或 POMODMER_OPEN=0）
-node src/pom.mjs --config cordis.table.json   # 换插件清单
 ```
 
 ## 架构
@@ -53,8 +61,73 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
   （可选）Electron 壳  electron/main.cjs ──spawn──▶ 上面的宿主，BrowserWindow 加载同一个 web/
 ```
 
-- `cordis.json` 是插件清单（声明式入口）；`cordis.table.json` 只挂表格插件（xlsx 能力按需启用）。
+- `cordis.json` 是插件清单（声明式入口）；`cordis.table.json` 只挂表格插件。
+- 启动时按「显式 `--config` > `POMODMER_CONFIG` > 自动探测」选清单：探到 Python + openpyxl 就用
+  `cordis.with-xlsx.json`（番茄钟 + 表格 + 报表），否则用 `cordis.json`。决策与原因每次都打进日志。
 - 三个服务的加载顺序由 `inject` 依赖图推导：`store → timer → http`，无需手动编排。
+
+## 复用既有表格能力（Python + OpenPyXL）
+
+这套能力继承自 `cordis-table-app` v1.0.0，它不是"周报专用代码"，而是一个**通用表格服务**：
+`ctx.table` 把表格操作经 JSON-RPC（stdio 行分隔）转发给常驻的 Python worker，宿主自己完全不碰 Excel。
+
+| 分类 | 方法 | 说明 |
+|---|---|---|
+| 工作簿 | `createWorkbook(path, sheet)` | 新建工作簿并指定首个工作表名 |
+| 工作表 | `addSheet(path, name)` | 追加工作表 |
+| 写入 | `writeRows(path, sheet, startRow, startCol, rows)` | 批量写二维数组（空值写 `null` 即空单元格） |
+| 写入 | `writeCell(path, sheet, row, col, value)` | 单格写 |
+| 样式 | `styleHeader(path, sheet, row, ncols, opts)` | 表头底色/加粗/居中/边框（`opts.fill` / `opts.font_color`） |
+| 样式 | `setColumnWidth(path, sheet, col, width)` | 列宽 |
+| 读取 | `readSheet(path, sheet)` | 读回 `{ rows, max_row, max_col }` |
+| 落盘 | `save(path)` / `close(path)` | 保存（`close` 顺带移出 worker 的内存缓存） |
+| 自检 | `ping()` | 返回 Python / openpyxl 版本 |
+
+三种用法，同一份 worker 支撑：
+
+1. **UI 点一下出报表**：周报按钮 → `POST /api/report` → `ctx.report.weekly({ days })`，四张表：概览 / 每日 / 会话 / 任务。
+2. **命令行：任意 JSON → xlsx**（与番茄钟无关的通用小工具，换任何项目都能直接用）：
+
+   ```bash
+   npm run gen -- --json sample.json --out output/out.xlsx --sheet Data --header
+   npm run demo        # 端到端演示：扫描 Cordis 包清单生成 xlsx 并回读校验
+   ```
+
+3. **写自己的插件复用 `ctx.table`**（不要绕开它直接调 Python）：
+
+   ```js
+   import { Service } from 'cordis'
+   export class MyExport extends Service {
+     static provide = 'myexport'
+     static inject = ['store', 'timer']      // 只把**必需**依赖写进 inject
+     async dump() {
+       const t = this.ctx.get('table')        // 可选依赖：用 ctx.get，不要写进 inject
+       if (!t) throw new Error('未启用表格能力：装好 Python + openpyxl 后重启即自动启用')
+       const file = 'output/dump.xlsx'
+       await t.createWorkbook(file, '数据')
+       await t.writeRows(file, '数据', 1, 1, [['列A', '列B'], [1, 2]])
+       await t.styleHeader(file, '数据', 1, 2)
+       await t.save(file)
+       return { file }
+     }
+   }
+   ```
+
+   > 可选依赖**写进 `inject` 会让插件永远停在 PENDING**（README 尾部「设计要点」有实测记录），
+   > 所以允许降级的能力一律 `ctx.get('table')` 运行时取。
+
+**移植到别的项目**：`src/plugins/table.mjs` + `src/core/bridge.mjs` + `python/rpc_server.py` 三件套，
+清单里加一条 `{ "id": "table", "name": "./src/plugins/table.mjs" }` 即可。
+解释器不硬编码任何盘符（PATH 扫描 + 常见安装目录，可用 `config.pythonBin` / `PYTHON_BIN` 覆盖），换机换系统都不用改代码。
+
+三条纪律（都是踩过的坑）：
+
+- **stdio 只走协议**：stdout 只允许一行一个 JSON-RPC 对象，被调库的任何 `print()` 都会污染通道 ——
+  worker 用 `contextlib.redirect_stdout(sys.stderr)` 兜住，别去掉。
+- **两端必须同为 UTF-8**：Windows 中文环境里 Python 默认按 gbk/cp936 解 stdio，UTF-8 中文会先变乱码、
+  再退化成孤立代理字符，一路潜伏到 openpyxl 落盘才以 `surrogates not allowed` 炸出来。
+  桥侧注入 `PYTHONIOENCODING=utf-8`，worker 侧 `_force_utf8_stdio()` 兜底，两道都要。
+- **工作簿按 `path` 缓存在 Python 内存**：写完必须 `save`（或 `close`）才落盘；同一 path 复用同一份工作簿。
 
 ## 番茄工作法规则（落地实现）
 

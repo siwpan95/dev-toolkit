@@ -201,13 +201,19 @@ export class HttpService extends Service {
     }
 
     // ---- P2：周报导出（可选能力，依赖 ctx.table -> Python OpenPyXL）----
+    // 能力是否在场由启动时的清单决定（boot.mjs resolveConfigPath 自动探测），
+    // 所以这里的提示要能解释"为什么没有"，而不是只丢一个环境变量名。
     if (path === '/api/report') {
       const report = this.ctx.get('report')
+      const off = process.env.POMODMER_NO_XLSX === '1'
+      const hint = off
+        ? 'xlsx 报表能力已被 POMODMER_NO_XLSX=1 主动关闭（去掉该变量重启即恢复）'
+        : '未启用 xlsx 报表插件：装好 Python + openpyxl 后重启即自动启用（也可 POMODMER_CONFIG=cordis.with-xlsx.json 强制启用）'
       if (req.method === 'GET') {
-        return json(200, { available: !!report, hint: report ? null : '未启用 xlsx 报表插件（POMODMER_CONFIG=cordis.with-xlsx.json）' })
+        return json(200, { available: !!report, hint: report ? null : hint })
       }
       if (req.method === 'POST') {
-        if (!report) return json(501, { error: '未启用 xlsx 报表插件：用 POMODMER_CONFIG=cordis.with-xlsx.json 启动（需要 Python + openpyxl）' })
+        if (!report) return json(501, { error: hint })
         const body = await this._body(req)
         const days = Math.min(Math.max(Number(body && body.days) || 7, 1), 60)
         try {

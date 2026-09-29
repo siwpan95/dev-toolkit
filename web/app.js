@@ -503,7 +503,9 @@ async function loadReportAvailability() {
     const d = await getJson('/api/report')
     if (!d.available) {
       el.reportBtn.disabled = true
-      el.reportNote.textContent = '未启用 xlsx 报表能力：用 POMODMER_CONFIG=cordis.with-xlsx.json 启动（需要 Python + openpyxl）。'
+      // 直接用服务端给的 hint：能力没启用有三种原因（没装 Python / 装了缺 openpyxl / 被主动关闭），
+      // 只有服务端知道是哪一种，前端不要自己编。
+      el.reportNote.textContent = (d.hint || '未启用 xlsx 报表能力。') + '（重启后自动生效）'
     } else {
       el.reportBtn.disabled = false
       el.reportNote.textContent = ''

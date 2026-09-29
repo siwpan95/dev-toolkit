@@ -261,6 +261,12 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 | 3 | **要不要"真桌面"能力？** | ✅ **P0–P2 纯浏览器；P3 加 Electron 桌面壳**（仅 devDep，可失败） | 零新增 npm 依赖是硬约束；托盘/置顶/全局快捷键留给 Electron |
 | 4 | **Gitee 仓库怎么处理？** | ✅ **原地改名**，保留 `cordis-table-app` 仓库与全部历史 | 资产与历史永远保全；README 注明血统 |
 
+> **2026-09-29 追加修订（决策 1）**：原决策"降级为可选插件、默认不拉起"实际效果是**能力休眠** ——
+> 除了写代码的人，没人会记得每次启动都设 `POMODMER_CONFIG=cordis.with-xlsx.json`。
+> 已改为**按需自动启用**：启动时探测本机 Python + openpyxl，探到就自动挂
+> `cordis.with-xlsx.json`，探不到安静退回纯番茄钟；显式 `--config` / `POMODMER_CONFIG` 仍然优先，
+> `POMODMER_NO_XLSX=1` 可主动关闭。详见 §8「表格能力复活」。
+
 ---
 
 ## 8. 执行记录
@@ -332,6 +338,34 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
    `app.whenReady()` undefined）。该变量启动前就被读取，必须**在 spawn 子进程前删掉** → 新增 `electron/start.mjs`。
 3. Electron 二进制首次安装未落地（`node_modules/electron` 无 `dist/`）→ 显式跑
    `ELECTRON_MIRROR=... node node_modules/electron/install.js` 补齐（158MB，npmmirror 可用）。
+
+### 2026-09-29 · 表格能力复活：从「记得设环境变量」到「能跑就自动带上」（实测通过）
+
+**背景**：`ctx.table`（Cordis → JSON-RPC stdio → Python OpenPyXL）是从 `cordis-table-app` 继承的既有资产，
+在 P2 只被周报用了一条链路；而"可选插件 + 手动设 `POMODMER_CONFIG`"的启用方式让它事实上休眠 ——
+装没装 Python 的机器都得先知道这个环境变量才用得上。
+
+| 交付 | 文件 | 说明 |
+|---|---|---|
+| 解释器探测复用 | `src/plugins/table.mjs` | 抽出 `probeTableWorker()`（返回 `{bin, openpyxl, anyBin}`）+ memo；`resolvePythonBin()` 语义不变（显式指定仍权威、缺依赖仍回退让 Python 自己报错） |
+| 清单自动选择 | `src/boot.mjs` | 新增 `resolveConfigPath()`：显式 `--config` > `POMODMER_CONFIG` > 自动探测 > `cordis.json`；每次启动打印"选了哪个清单 + 为什么" |
+| 提示与前端 | `http.mjs` / `report.mjs` / `web/app.js` | 能力不在场时区分三种原因（没装 Python / 装了缺 openpyxl / 被 `POMODMER_NO_XLSX=1` 关闭）；前端直接渲染服务端 hint，不再自己编文案 |
+| 冒烟 | `src/_smoke_pom.mjs` | 新增第 8 节两断言（未挂报表时探测接口给可读原因）+ 第 13 节（自动决策与探测结果一致、显式/env/opt-out 优先级） |
+| 文档 | `README.md` | 新增「复用既有表格能力」章节：10 个 RPC 方法表、三种用法（UI 周报 / `npm run gen` 通用 JSON→xlsx / 自写插件骨架）、移植三件套、三条纪律 |
+
+**验证**（都是实测，不是推断）：
+
+- 决策四条分支：默认（本机探到 `G:\Python314\python.exe`）→ `cordis.with-xlsx.json`；
+  `POMODMER_NO_XLSX=1` / `POMODMER_CONFIG` / 显式 `--config` → 各自正确优先；清空 `PATH` 模拟无 Python → 退回 `cordis.json` 且**不**误报"缺 openpyxl"。
+- 首次探测 421ms（之后走 memo，TableService 不再重复探测）；自动探测另设 2.5s/候选 + 4s 总预算，防个别占位解释器把启动拖长。
+- 端到端（不给任何清单）：`ctx.table=true ctx.report=true`、5 个入口、`GET /api/report` → `available:true`、
+  `POST /api/report` → 真实产出四张表 xlsx、关停后 python worker 已回收（进程数 before=after）。
+- 关闭态：`POMODMER_NO_XLSX=1` → 3 个入口、`available:false`、`POST` 返回 501 且提示明确说明是主动关闭。
+- `npm run smoke` → **ALL PASS**（EXIT=0）。
+
+**顺带修掉的一个真 bug**（第 8 节断言抓到的方向）：`anyBin` 原先会把列表尾部的裸名 `python3`
+当成"存在"，导致根本没装 Python 的机器被提示成"装了 Python 但缺 openpyxl"，指错排查方向；
+现在 `anyBin` 只认确认存在的绝对路径。
 
 ## 9. 附：本轮调研来源
 
