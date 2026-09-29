@@ -1,5 +1,7 @@
 # Pomodmer —— Cordis 内核 + 本地 Web UI 的番茄钟
 
+仓库：<https://gitee.com/siwpan/pomodmer>（公开，MIT）
+
 > 由 **cordis-table-app v1.0.0** 改造（2026-09-29 回滚到 v1.0.0 后转向番茄钟）。
 > 表格能力（Python + OpenPyXL）保留为**可选插件**，不再默认拉起。
 > 规划与执行记录见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。
