@@ -406,6 +406,40 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 | P3 | Excel → 任务/会话导入（`readSheet` 反向；合并策略需先确认） | 待做（依赖 P1 的读回健壮性） |
 | P4 | 打包为可复用插件（三件套抽包） | 暂缓（缺第二个真实消费者） |
 
+### 2026-09-29 · P4：表格能力三件套统一到权威源（第二个消费者出现，实测通过）
+
+**优先级变更**：原计划 P4"打包为可复用插件"因"缺第二个真实消费者"暂缓；本轮确认
+第二个消费者是 `G:\repos\cordis-table-app`（本项目的前身、也是表格能力的超集）。
+更关键的是：**分叉成本已经被实测证明，不再是假设** —— 同一个"日期单元格杀死 worker"的缺陷
+在两边各自踩了一遍（两边 worker 的 `json.dumps` 都在 `try` 之外）；UTF-8 那个坑也是两边各修一次。
+故 P4 提到 P2/P3 之前先做。
+
+| 交付 | 位置 | 说明 |
+|---|---|---|
+| 权威源加固 | `cordis-table-app`（worker/table.mjs/bridge.mjs） | 把 pomodmer 侧 P1 的加固整体回流：序列化进 `try` + `_json_default`、`col_types` 原生类型写入、`set_number_format`/`freeze_panes`/`sheet_meta`（并补 `merged`/`comments`）；`py -3` 这类"命令 + 参数"候选原先永远探活失败，改为统一按 `pythonCommandParts` 拆词 |
+| 探测 API 合流 | 同上 | 权威源采纳 pomodmer 的 `probeTableWorker()`（memo + 超时预算 + `anyBin` 语义），并保留它自己更强的候选枚举（项目 `.venv` → `py -3` → PATH → 用户级/系统级/各盘符落点） |
+| 来源锁 | `tools/table-kit.json` / `tools/table-kit.lock.json` | 声明权威源与同步清单；锁里记录**来源仓库 + 提交号 + 每文件 sha256** |
+| 同步工具 | `tools/sync-table-kit.mjs` | `--check` 体检（锁↔本地、锁↔源）、`--lock-only` 仅查锁↔本地（不依赖权威源在场，可进 CI/smoke）、默认拒绝覆盖未登记的本地改动、`--force` 强推 |
+| 冒烟 | `src/_smoke_pom.mjs` 第 11c / 13 节 | 11c：合并单元格 / 批注 / 改文本在 pomodmer 侧真的生效；13：三件套与来源锁一致 + 锁记录了权威源与提交号 |
+
+**验证**：两侧全绿 ——
+`cordis-table-app`：`npm test`（smoke + 地图演示 + DonJon 互通往返 600 格）通过，日期回归探针由
+"worker exit code=1"变为正常返回并存活；
+`pomodmer`：`npm run smoke` **ALL PASS**（EXIT=0），含联合套件新增能力与来源锁断言。
+同步工具也做了实测：权威源改动后 `--check` 报"源已更新，本仓库还没同步"，同步后复检通过。
+
+**顺带修掉**：`tools/sync-table-kit.mjs` 首版把 `defaultDir: "../cordis-table-app"` 按 `tools/` 解析，
+结果找成了 `pomodmer/cordis-table-app`；相对路径必须按**仓库根**解析。
+
+### 后续优先级（更新后）
+
+| 顺序 | 工作 | 状态 |
+|---|---|---|
+| P1 | xlsx 数据可用性（真实日期/数字格式/冻结表头/worker 崩溃） | ✅ 完成 |
+| P4 | 三件套统一到权威源（来源锁 + 同步工具 + 双向加固合流） | ✅ 本轮完成 |
+| P2 | 全量数据 xlsx 导出（复用同一层 `ctx.table`，与 JSON 备份互补） | 待做（下一步） |
+| P3 | Excel → 任务/会话导入（`readSheet` 反向；合并策略需先确认） | 待做（依赖 P1 的读回健壮性） |
+
 ## 9. 附：本轮调研来源
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）
 - Pomotroid（开源番茄钟，Vue+Electron，v1.4.0）：pomotroid.org、GitCode/AtomGit 项目镜像与二次开发文档

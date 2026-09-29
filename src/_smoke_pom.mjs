@@ -4,6 +4,7 @@
 // 数据落 os.tmpdir()，端口由系统分配（port: 0），不污染真实 data/store.json、不抢端口。
 import { bootHost, stopHost, resolveConfigPath } from './boot.mjs'
 import { probeTableWorker } from './plugins/table.mjs'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -313,6 +314,24 @@ async function main() {
     ok(!!firstSess, '带日期的 xlsx 能读回（ISO 串），不再崩 worker', JSON.stringify(sessBack.rows.slice(0, 2)))
     const alive = await ctx3.table.ping()
     ok(!!alive && !!alive.openpyxl, '读日期后 worker 仍存活（回归：旧版会整进程退出）', JSON.stringify(alive))
+
+    console.log('\n=== 11c. 联合套件新增能力（并集来自 cordis-table-app 的那一半）===')
+    // 三件套已统一到权威源：pomodmer 这边顺带获得合并单元格/批注/填充/边框等能力。
+    // 只断言"真的生效"，不做存在性检查 —— 方法在不在，下面的调用会直接说话。
+    const extra = join(dir, 'pomodmer-kit-extra.xlsx')
+    await ctx3.table.createWorkbook(extra, '样式')
+    await ctx3.table.writeRows(extra, '样式', 1, 1, [['旧标题', ''], [1, 2]])
+    await ctx3.table.mergeCells(extra, '样式', 1, 1, 1, 2)
+    await ctx3.table.setCellText(extra, '样式', 1, 1, '合并标题')
+    await ctx3.table.setCellFill(extra, '样式', 2, 1, 'FFF2E2C0')
+    await ctx3.table.setComment(extra, '样式', 2, 2, '来自 kit 的批注')
+    await ctx3.table.setBorders(extra, '样式', 1, 1, 2, 2)
+    await ctx3.table.save(extra)
+    const metaExtra = await ctx3.table.sheetMeta(extra, '样式')
+    ok(metaExtra.merged.includes('A1:B1'), '合并单元格生效', JSON.stringify(metaExtra.merged))
+    ok(metaExtra.comments.includes('B2'), '批注生效', JSON.stringify(metaExtra.comments))
+    const backExtra = await ctx3.table.readSheet(extra, '样式')
+    ok(backExtra.rows[0][0] === '合并标题', '写回合并区标题生效', JSON.stringify(backExtra.rows[0]))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }
@@ -333,7 +352,18 @@ async function main() {
   const electronBin = existsSync('node_modules/electron/dist/electron.exe') || existsSync('node_modules/electron/dist/electron')
   console.log('  [info] Electron 运行时：' + (electronBin ? '已安装，可用 npm run electron' : '未安装（可选项，不影响主功能）'))
 
-  console.log('\n=== 13. 表格能力自动启用决策（既有 OpenPyXL 资产不再靠"记得设环境变量"）===')
+  console.log('\n=== 13. 表格能力三件套的来源锁（防两个仓库再次静默分叉）===')
+  // 纯本地不变量：bridge.mjs / table.mjs / rpc_server.py 必须与 tools/table-kit.lock.json 一致。
+  // 手改这三件套却没走同步 → 这里立刻红（用 --lock-only，不要求权威源在场，任何机器都能跑）。
+  const kit = spawnSync(process.execPath, ['tools/sync-table-kit.mjs', '--lock-only'], { encoding: 'utf8' })
+  ok(kit.status === 0, '三件套与来源锁一致（node tools/sync-table-kit.mjs --lock-only）',
+    ((kit.stdout || '') + (kit.stderr || '')).trim().split('\n').slice(-4).join(' | '))
+  const lockJson = JSON.parse(readFileSync('tools/table-kit.lock.json', 'utf8'))
+  ok(!!lockJson.source && !!lockJson.source.repo && !!lockJson.source.commit,
+    '来源锁记录了权威源与提交号（可追溯"这份代码从哪来"）',
+    JSON.stringify(lockJson.source))
+
+  console.log('\n=== 14. 表格能力自动启用决策（既有 OpenPyXL 资产不再靠"记得设环境变量"）===')
   // 本机探测结果决定自动清单；断言的是"决策与探测一致"这条不变量，
   // 所以在装了 Python+openpyxl 的机器和没装的机器上都成立。
   const probe = probeTableWorker(null, { timeoutMs: 2500, budgetMs: 4000 })

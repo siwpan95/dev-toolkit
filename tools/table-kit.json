@@ -1,0 +1,13 @@
+{
+  "name": "cordis-table-kit",
+  "source": {
+    "repo": "https://gitee.com/siwpan/cordis-table-app.git",
+    "defaultDir": "../cordis-table-app",
+    "note": "权威源 = cordis-table-app（表格 + VTT/地图方法的超集）。pomodmer 只消费，不在这里改这三件套。"
+  },
+  "files": [
+    { "from": "src/core/bridge.mjs", "to": "src/core/bridge.mjs" },
+    { "from": "src/plugins/table.mjs", "to": "src/plugins/table.mjs" },
+    { "from": "python/rpc_server.py", "to": "python/rpc_server.py" }
+  ]
+}

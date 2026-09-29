@@ -78,14 +78,23 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 | 写入 | `writeRows(path, sheet, startRow, startCol, rows)` | 批量写二维数组（空值写 `null` 即空单元格） |
 | 写入 | `writeRows(..., { colTypes })` | 按列声明类型 `'datetime'`/`'date'`/`'number'`/`'text'`：把 ISO 串还原成 Excel **原生**类型，日期才能排序/筛选/做日期计算 |
 | 写入 | `writeCell(path, sheet, row, col, value)` | 单格写 |
+| 写入 | `setCellText(path, sheet, row, col, text)` | 只改文本（保留样式与合并） |
 | 样式 | `styleHeader(path, sheet, row, ncols, opts)` | 表头底色/加粗/居中/边框（`opts.fill` / `opts.font_color`） |
+| 样式 | `setCellFill(path, sheet, row, col, color)` | 单元格底色（ARGB 十六进制） |
+| 样式 | `setBorders(path, sheet, r1, c1, r2, c2, opts)` | 区域边框 |
+| 样式 | `setComment(path, sheet, row, col, text)` | 批注 |
+| 结构 | `mergeCells(path, sheet, r1, c1, r2, c2)` | 合并单元格区域 |
 | 样式 | `setColumnWidth(path, sheet, col, width)` | 列宽 |
 | 样式 | `setNumberFormat(path, sheet, items)` | 批量数字格式：`items: [{ range: 'A2:A8', format: 'yyyy-mm-dd' }]` |
 | 样式 | `freezePanes(path, sheet, cell)` | 冻结窗格（`'A2'` = 表头常驻） |
 | 读取 | `readSheet(path, sheet)` | 读回 `{ rows, max_row, max_col }`（日期以 ISO 串返回） |
-| 读取 | `sheetMeta(path, sheet, row)` | 冻结窗格 / 数字格式 / 值类型 —— 用来验证导出文件的**真实形态** |
+| 读取 | `sheetMeta(path, sheet, row)` | 冻结窗格 / 数字格式 / 值类型 / 合并区 / 批注 —— 用来验证导出文件的**真实形态** |
 | 落盘 | `save(path)` / `close(path)` | 保存（`close` 顺带移出 worker 的内存缓存） |
 | 自检 | `ping()` | 返回 Python / openpyxl 版本 |
+
+> 同一个 worker 里还有 `readMap` / `renderMapPng` / `renderToken` / `genDungeon` /
+> `exportDonjon` / `importDonjon`（权威源的地图与 VTT 能力），pomodmer 用不到，
+> 但它们随三件套一起来 —— 需要时直接可用，不必再开一份 worker。
 
 三种用法，同一份 worker 支撑：
 
@@ -122,7 +131,25 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 
 **移植到别的项目**：`src/plugins/table.mjs` + `src/core/bridge.mjs` + `python/rpc_server.py` 三件套，
 清单里加一条 `{ "id": "table", "name": "./src/plugins/table.mjs" }` 即可。
-解释器不硬编码任何盘符（PATH 扫描 + 常见安装目录，可用 `config.pythonBin` / `PYTHON_BIN` 覆盖），换机换系统都不用改代码。
+解释器不硬编码任何盘符（项目 `.venv` → `py -3` → PATH → 用户级/系统级/各盘符常见落点，可用 `config.pythonBin` / `PYTHON_BIN` 覆盖），换机换系统都不用改代码。
+
+### 这三件套不在本仓库维护（单一权威源 + 来源锁）
+
+权威源是 [cordis-table-app](https://gitee.com/siwpan/cordis-table-app)（表格 + 地图/VTT 能力的超集）。
+pomodmer 是从那边**同步过来的消费者**：
+
+```bash
+npm run sync:kit     # 从权威源同步三件套，并更新 tools/table-kit.lock.json
+npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源），不一致即报错
+```
+
+为什么不让两边各存一份：这套代码曾经在两个仓库里各自演化，结果同一个
+**"日期单元格杀死整个 worker"** 的缺陷被两边各自踩了一遍、各修了一遍，UTF-8 那个坑同样是两边各修一次。
+复制粘贴治不了这个病，能治的是"单一权威源 + 可验证的来源锁"：
+
+- `tools/table-kit.json` 声明同步哪些文件、权威源在哪；
+- `tools/table-kit.lock.json` 记录**来源仓库 + 提交号 + 每个文件的 sha256**；
+- 手改这三件套却不走同步 → `npm run check:kit` 和冒烟第 13 节立刻报红；同步工具默认拒绝覆盖未登记的本地改动。
 
 三条纪律（都是踩过的坑）：
 
@@ -215,6 +242,7 @@ pomodmer/
 ├─ cordis.json              插件清单（默认：store + timer + http）
 ├─ cordis.table.json        插件清单（可选：仅 table，xlsx 能力）
 ├─ cordis.with-xlsx.json    插件清单（可选：番茄钟 + table + report，启用周报）
+├─ tools/                   表格能力三件套的同步工具与来源锁（sync-table-kit.mjs / table-kit.json / table-kit.lock.json）
 ├─ pomodmer.bat             自愈式启动器（Windows 双击即用）
 ├─ electron/                main.cjs 主进程 / start.mjs 启动器 / make-icon.mjs + icon.png
 ├─ web/                     index.html / app.js / style.css（零框架前端）
@@ -226,7 +254,7 @@ pomodmer/
    ├─ plugins/store.mjs     StoreService（ctx.store）
    ├─ plugins/timer.mjs     TimerService（ctx.timer）
    ├─ plugins/http.mjs      HttpService（ctx.http）
-   ├─ plugins/table.mjs     TableService（ctx.table，可选）
+   ├─ plugins/table.mjs     TableService（ctx.table，可选；由权威源同步，勿手改）
    ├─ demo.mjs / cli.mjs    xlsx 演示与命令行工具（走 cordis.table.json）
    ├─ _smoke.mjs            Cordis 内核冒烟
    └─ _smoke_pom.mjs        番茄钟端到端冒烟（真实 HTTP）

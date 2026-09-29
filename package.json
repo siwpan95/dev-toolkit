@@ -9,6 +9,8 @@
     "demo": "node src/demo.mjs",
     "gen": "node src/cli.mjs",
     "smoke": "node src/_smoke.mjs && node src/_smoke_pom.mjs",
+    "sync:kit": "node tools/sync-table-kit.mjs",
+    "check:kit": "node tools/sync-table-kit.mjs --check",
     "icon": "node electron/make-icon.mjs",
     "electron": "node electron/start.mjs"
   },

@@ -1,7 +1,25 @@
 // JsonRpcBridge —— Cordis 宿主与 Python OpenPyXL worker 之间的 JSON-RPC stdio 桥
 // 协议：每行一个 JSON-RPC 2.0 对象；响应按 id 匹配 pending；stdout 仅承载协议。
 import { spawn } from 'node:child_process'
+import { sep } from 'node:path'
 import readline from 'node:readline'
+
+/**
+ * 把 pythonBin 拆成 [可执行文件, ...前置参数]。
+ *
+ * 解释器不一定是单个路径：Windows 官方启动器就是 `py -3` 这种"命令 + 参数"的形态。
+ * 直接把它塞给 spawn 会拼成一个不存在的程序名，塞进 cmd 时加引号同理 ——
+ * 结果是这一条候选永远不会生效（自发现里"看起来支持、其实从不命中"的坑）。
+ *
+ * 判定规则：含路径分隔符 = 字面路径（可能带空格，绝不拆）；否则按空白拆词。
+ */
+export function pythonCommandParts(pythonBin) {
+  const s = String(pythonBin || '').trim()
+  if (!s) return ['']
+  if (s.includes('/') || s.includes('\\')) return [s]
+  const parts = s.split(/\s+/).filter(Boolean)
+  return parts.length ? parts : [s]
+}
 
 export class JsonRpcBridge {
   constructor(pythonBin, scriptPath) {
@@ -16,14 +34,15 @@ export class JsonRpcBridge {
   // 同步创建子进程并返回 "已 spawn" 的 Promise（拿到 pid 即 resolve）
   start() {
     if (this.child) return Promise.resolve(this.child.pid)
-    this.child = spawn(this.pythonBin, ['-u', this.scriptPath], {
+    const [bin, ...preArgs] = pythonCommandParts(this.pythonBin)
+    this.child = spawn(bin, [...preArgs, '-u', this.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       // 编码纪律：本桥一律以 UTF-8 写管道（child.stdin.write(str) 就是 UTF-8），
       // 而 Windows 中文环境里 Python 默认按区域编码 gbk/cp936 解 stdio ——
       // 中文会被解成乱码，甚至退化成本不该存在的孤立代理字符，
       // 一路潜伏到 openpyxl 落盘才炸（lxml: surrogates not allowed）。
-      // 这里显式指定，worker 脚本内也有一道 reconfigure 兜底（两道都要，缺一不可：
-      // 脚本兜底管"谁来启动都对"，env 兜底管"将来新加的 py 脚本也自动对"）。
+      // worker 脚本内也有一道 reconfigure 兜底，两道都要：
+      // 脚本兜底管"谁来启动都对"，env 兜底管"将来新加的 py 脚本也自动对"。
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     })
 
