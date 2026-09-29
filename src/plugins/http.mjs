@@ -3,8 +3,9 @@
 // 安全：默认只监听 127.0.0.1；静态目录做路径穿越防护；不代理任意路径。
 import { Service } from 'cordis'
 import { createServer } from 'node:http'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile, unlink } from 'node:fs/promises'
 import { resolve, extname, join, sep, basename } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 
@@ -226,6 +227,33 @@ export class HttpService extends Service {
       }
     }
 
+    // ---- P3：从 xlsx 回灌（去重追加，不删任何已有记录）----
+    // mode=preview（默认）只算不写；mode=apply 才落库。前端先预览再确认，
+    // 就是为了别让"手滑点一下"直接改动几个月的历史记录。
+    if (path === '/api/import/xlsx' && req.method === 'POST') {
+      const report = this.ctx.get('report')
+      if (!report) return json(501, { error: this._xlsxHint() })
+      const mode = url.searchParams.get('mode') === 'apply' ? 'apply' : 'preview'
+      const buf = await this._rawBody(req)
+      if (!buf.length) return json(400, { error: '请求体为空：请上传 .xlsx 文件' })
+      if (buf.length > 20 * 1024 * 1024) return json(413, { error: '文件过大（>20MB）：这不是本应用导出的表格吧' })
+      if (buf.subarray(0, 2).toString() !== 'PK') {
+        return json(400, { error: '不是 xlsx 文件（zip 魔数不匹配）：请上传本应用导出或另存的 .xlsx' })
+      }
+      // worker 只认路径：把上传字节落到临时文件再交给 ctx.table 读，读完就删
+      const tmp = join(tmpdir(), 'pomodmer-import-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.xlsx')
+      try {
+        await writeFile(tmp, buf)
+        const summary = await report.importXlsx(tmp, { mode })
+        if (mode === 'apply') this._broadcast('imported', { settings: store.settings, via: 'xlsx' })
+        return json(200, summary)
+      } catch (e) {
+        return json(400, { error: 'xlsx 解析失败: ' + e.message })
+      } finally {
+        unlink(tmp).catch(() => {})
+      }
+    }
+
     // ---- P2：周报/全量导出（可选能力，依赖 ctx.table -> Python OpenPyXL）----
     // 能力是否在场由启动时的清单决定（boot.mjs resolveConfigPath 自动探测），
     // 所以提示要能解释"为什么没有"，而不是只丢一个环境变量名。
@@ -319,6 +347,22 @@ export class HttpService extends Service {
         if (!raw) return ok({})
         try { ok(JSON.parse(raw)) } catch { no(new Error('请求体不是合法 JSON')) }
       })
+      req.on('error', no)
+    })
+  }
+
+  // 原始字节体（xlsx 上传用）：不能像 _body 那样 toString('utf8')，
+  // 二进制被 UTF-8 解码就毁了 —— 而且 zip 里任意字节都可能不是合法 UTF-8。
+  _rawBody(req) {
+    return new Promise((ok, no) => {
+      let size = 0
+      const chunks = []
+      req.on('data', (c) => {
+        size += c.length
+        if (size > MAX_BODY) { no(new Error('请求体过大')); req.destroy(); return }
+        chunks.push(c)
+      })
+      req.on('end', () => ok(Buffer.concat(chunks)))
       req.on('error', no)
     })
   }

@@ -18,6 +18,7 @@ const el = {
   intNote: $('intNote'), intIn: $('btnIntIn'), intOut: $('btnIntOut'),
   unplannedList: $('unplannedList'), unplannedEmpty: $('unplannedEmpty'),
   exportBtn: $('btnExport'), exportXlsxBtn: $('btnExportXlsx'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
+  importXlsxBtn: $('btnImportXlsx'), fileImportXlsx: $('fileImportXlsx'), applyXlsxBtn: $('btnApplyXlsx'),
   ambient: $('cfgAmbient'), toastChk: $('cfgToast'), mini: $('btnMini'),
   reportBtn: $('btnReport'), reportHint: $('reportHint'), reportNote: $('reportNote'),
 }
@@ -570,6 +571,71 @@ el.fileImport.onchange = async () => {
     el.ioHint.className = 'hint err'
   }
   el.fileImport.value = ''
+}
+
+// ---- P3：xlsx 回灌（先预览，再确认；预览不写库）----
+let pendingXlsx = null
+
+function describeXlsx(d) {
+  const parts = [
+    `任务 +${d.tasks.add}/~${d.tasks.update}/跳过${d.tasks.skip}`,
+    `会话 +${d.sessions.add}/跳过${d.sessions.skip}`,
+    `事件 +${d.unplanned.add}/跳过${d.unplanned.skip}`,
+  ]
+  const warn = d.warnings && d.warnings.length ? `；告警 ${d.warnings.length} 条：${d.warnings[0]}` : ''
+  return parts.join('；') + warn
+}
+
+el.importXlsxBtn.onclick = () => el.fileImportXlsx.click()
+
+el.fileImportXlsx.onchange = async () => {
+  const file = el.fileImportXlsx.files && el.fileImportXlsx.files[0]
+  if (!file) return
+  el.applyXlsxBtn.hidden = true
+  pendingXlsx = null
+  el.ioHint.className = 'hint'
+  el.ioHint.textContent = '正在预览（不会改动数据）…'
+  try {
+    const res = await fetch('/api/import/xlsx?mode=preview', { method: 'POST', body: file })
+    const d = await res.json()
+    if (!res.ok) {
+      el.ioHint.className = 'hint err'
+      el.ioHint.textContent = '预览失败：' + (d.error || res.status)
+      return
+    }
+    pendingXlsx = file
+    el.ioHint.textContent = '预览：' + describeXlsx(d)
+    el.applyXlsxBtn.hidden = false
+  } catch (e) {
+    el.ioHint.className = 'hint err'
+    el.ioHint.textContent = '预览失败：' + e.message
+  }
+}
+
+el.applyXlsxBtn.onclick = async () => {
+  if (!pendingXlsx) return
+  el.applyXlsxBtn.disabled = true
+  el.ioHint.className = 'hint'
+  el.ioHint.textContent = '正在导入…'
+  try {
+    const res = await fetch('/api/import/xlsx?mode=apply', { method: 'POST', body: pendingXlsx })
+    const d = await res.json()
+    if (!res.ok) {
+      el.ioHint.className = 'hint err'
+      el.ioHint.textContent = '导入失败：' + (d.error || res.status)
+      return
+    }
+    el.ioHint.textContent = '导入完成：' + describeXlsx(d)
+    pendingXlsx = null
+    el.applyXlsxBtn.hidden = true
+    el.fileImportXlsx.value = ''
+    refreshAll()
+  } catch (e) {
+    el.ioHint.className = 'hint err'
+    el.ioHint.textContent = '导入失败：' + e.message
+  } finally {
+    el.applyXlsxBtn.disabled = false
+  }
 }
 
 document.addEventListener('keydown', (e) => {

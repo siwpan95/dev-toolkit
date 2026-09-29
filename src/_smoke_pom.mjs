@@ -5,7 +5,7 @@
 import { bootHost, stopHost, resolveConfigPath } from './boot.mjs'
 import { probeTableWorker } from './plugins/table.mjs'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import http from 'node:http'
@@ -61,6 +61,41 @@ function download(url, destPath) {
         res({ status: resp.statusCode, headers: resp.headers, bytes: buf.length })
       })
     }).on('error', rej)
+  })
+}
+
+// 二进制上传（xlsx 回灌）：把文件原样作为请求体发出去，服务端按原始字节收。
+function postBinary(url, filePath) {
+  const buf = readFileSync(filePath)
+  const u = new URL(url)
+  return new Promise((res, rej) => {
+    const r = http.request({
+      hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Length': buf.length },
+    }, (resp) => {
+      let body = ''
+      resp.on('data', (c) => { body += c })
+      resp.on('end', () => res({ status: resp.statusCode, body }))
+    })
+    r.on('error', rej)
+    r.write(buf)
+    r.end()
+  })
+}
+const postBinaryRaw = (url, buf) => {
+  const u = new URL(url)
+  return new Promise((res, rej) => {
+    const r = http.request({
+      hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': buf.length },
+    }, (resp) => {
+      let body = ''
+      resp.on('data', (c) => { body += c })
+      resp.on('end', () => res({ status: resp.statusCode, body }))
+    })
+    r.on('error', rej)
+    r.write(buf)
+    r.end()
   })
 }
 
@@ -385,6 +420,55 @@ async function main() {
     ok(dlUnplanned.rows.length === 2, '「计划外事件」= 表头 + 1 条记录', JSON.stringify(dlUnplanned.rows))
     ok(dlUnplanned.rows[1][1] === '外部' && String(dlUnplanned.rows[1][2]).includes('全量导出'),
       '事件的类型与备注正确落表', JSON.stringify(dlUnplanned.rows[1]))
+
+    console.log('\n=== 11e. P3：xlsx 回灌（预览 → 落库 → 幂等 → 往返不翻倍）===')
+    // 拿上面刚下载的全量导出当模板，像人一样在上面编辑
+    const edited = join(dir, 'edited.xlsx')
+    copyFileSync(dlPath, edited)
+    await ctx3.table.writeRows(edited, '任务', 2, 1, [['冒烟任务A', 4, 0, '否']], { colTypes: ['text', 'number', 'number', 'text'] })
+    await ctx3.table.writeRows(edited, '会话', 2, 1,
+      [['2026-09-28T10:00:00', '2026-09-28T10:25:00', '专注', 25, '是', 0, '', '冒烟任务A']],
+      { colTypes: ['datetime', 'datetime', 'text', 'number', 'text', 'number', 'text', 'text'] })
+    await ctx3.table.save(edited)
+
+    const before = await json(get(base3 + '/api/state'))
+    const pv = await json(postBinary(base3 + '/api/import/xlsx?mode=preview', edited))
+    ok(pv.status === 200 && pv.data.tasks.add >= 1, '预览返回计划（新增任务 >= 1）',
+      JSON.stringify(pv.data && { t: pv.data.tasks, s: pv.data.sessions, u: pv.data.unplanned }))
+    const afterPv = await json(get(base3 + '/api/state'))
+    ok(before.data.tasks.length === afterPv.data.tasks.length, '预览**不改动**数据（只算不写）',
+      before.data.tasks.length + ' -> ' + afterPv.data.tasks.length)
+
+    const ap = await json(postBinary(base3 + '/api/import/xlsx?mode=apply', edited))
+    ok(ap.status === 200, '落库请求成功', String(ap.status))
+    const st2 = await json(get(base3 + '/api/state'))
+    const sess2 = await json(get(base3 + '/api/sessions'))
+    const 任务A = st2.data.tasks.find((t) => t.title === '冒烟任务A')
+    ok(!!任务A && 任务A.estimate === 4, '新任务按表里的预估番茄落库', JSON.stringify(任务A))
+    ok(sess2.data.sessions.some((s) => s.taskId === (任务A && 任务A.id)),
+      '会话按「任务」列标题关联到该任务（不是留空）')
+
+    // 幂等：同一份表再落一次，必须一条都不新增
+    const ap2 = await json(postBinary(base3 + '/api/import/xlsx?mode=apply', edited))
+    ok(ap2.data.tasks.add === 0 && ap2.data.sessions.add === 0 && ap2.data.unplanned.add === 0,
+      '同一份表重复导入：全部跳过（幂等）', JSON.stringify({ t: ap2.data.tasks, s: ap2.data.sessions, u: ap2.data.unplanned }))
+
+    // 往返不变量：**原样导出的文件再导回，历史不能翻倍**。
+    // xlsx 只有秒精度而库里带毫秒，这条专门防"按毫秒精确比对 -> 每次导入把记录翻一倍"。
+    const n1 = { t: st2.data.tasks.length, s: sess2.data.sessions.length }
+    const roundTrip = await json(postBinary(base3 + '/api/import/xlsx?mode=apply', dlPath))
+    const st3 = await json(get(base3 + '/api/state'))
+    const sess3 = await json(get(base3 + '/api/sessions'))
+    ok(roundTrip.data.tasks.add === 0 && roundTrip.data.sessions.add === 0 && roundTrip.data.unplanned.add === 0,
+      '原样回灌：一条都不新增（秒级容差比对）',
+      JSON.stringify({ t: roundTrip.data.tasks, s: roundTrip.data.sessions, u: roundTrip.data.unplanned }))
+    ok(st3.data.tasks.length === n1.t && sess3.data.sessions.length === n1.s,
+      '往返后历史规模不变（没有翻倍）', JSON.stringify(n1) + ' -> ' + JSON.stringify({ t: st3.data.tasks.length, s: sess3.data.sessions.length }))
+
+    // 坏输入要给人话，不是 500
+    const notZip = await json(postBinaryRaw(base3 + '/api/import/xlsx', Buffer.from('definitely not a zip')))
+    ok(notZip.status === 400 && /xlsx/.test(notZip.data.error || ''), '非 xlsx 文件 -> 400 + 可读原因',
+      notZip.status + ' ' + (notZip.data.error || ''))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }
