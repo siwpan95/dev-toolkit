@@ -98,7 +98,12 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 
 三种用法，同一份 worker 支撑：
 
-1. **UI 点一下出报表**：周报按钮 → `POST /api/report` → `ctx.report.weekly({ days })`，四张表：概览 / 每日 / 会话 / 任务。
+1. **UI / HTTP 出报表**（两条链路，分工明确）：
+   - `POST /api/report` → `report.weekly({ days })`：**周报**，最近 N 天，四张表：概览 / 每日 / 会话 / 任务。
+   - `GET /api/export?format=xlsx` → `report.full()`：**全量导出**，从第一条会话到今天，五张表
+     （多一张「计划外事件」），以附件直接下载。
+   - 分工：`GET /api/export`（JSON）用来**回灌备份**（能被 `/api/import` 再吃回去），
+     xlsx 两条链路用来**给人看和二次分析**（真实日期、数字格式、冻结表头，可以直接排序/筛选/透视）。
 2. **命令行：任意 JSON → xlsx**（与番茄钟无关的通用小工具，换任何项目都能直接用）：
 
    ```bash
@@ -192,9 +197,9 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 **P1**：任务清单（番茄归属，实际/预估对比）、统计面板（今日/连续天数/最近 7 天柱状图/
 12 周热力图/每任务进度条）、中断记录（内部/外部 + 计划外事件列表）、数据导出/导入 JSON。
 
-**P2**：周报 xlsx 导出（复用 Python OpenPyXL，四张表：概览/每日/会话/任务；日期是 Excel 原生日期、
-带数字格式、表头冻结）、白噪音与棕噪音（Web Audio 实时合成）、迷你窗（独立小窗只显示倒计时）、
-Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
+**P2**：xlsx 导出两条链路 —— 周报（最近 N 天，四张表）与**全量导出**（从第一条会话到今天，五张表，
+多一张「计划外事件」）；日期是 Excel 原生日期、带数字格式、表头冻结；白噪音与棕噪音（Web Audio 实时合成）、
+迷你窗（独立小窗只显示倒计时）、Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
 
 **P3（可选）**：Electron 桌面壳 —— 托盘常驻、窗口置顶、`Ctrl+Alt+Space` 全局快捷键、
 原生阶段通知；装不了 Electron 也不影响浏览器模式。
@@ -214,8 +219,9 @@ Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器�
 | GET | `/api/stats?days=7&weeks=12` | 统计：today / streak / recent / heat / byTask / total |
 | GET / POST | `/api/unplanned` | 计划外事件列表 / 记录（`kind`: internal\|external） |
 | DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
-| GET / POST | `/api/report` | 周报能力探测 / 生成 xlsx（未启用时 GET 给提示、POST 返回 501） |
-| GET | `/api/export` | 导出全部数据（JSON 附件） |
+| GET / POST | `/api/report` | 周报能力探测 / 生成周报 xlsx（未启用时 GET 给提示、POST 返回 501） |
+| GET | `/api/export` | 导出全部数据（JSON 附件；**用来回灌备份**，可被 `/api/import` 再导入） |
+| GET | `/api/export?format=xlsx` | 全量 xlsx 导出（5 张表：概览/每日/会话/任务/计划外事件；附件下载，**给人看与二次分析**） |
 | POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
 
 > 路由顺序坑：`/api/tasks/current` 必须排在 `/api/tasks/:id` 之前，否则会被当成 `id='current'` 的任务。

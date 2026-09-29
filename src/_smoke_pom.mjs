@@ -32,7 +32,9 @@ function req(url, method, payload) {
     const u = new URL(url)
     const data = payload === undefined ? null : JSON.stringify(payload)
     const r = http.request({
-      hostname: u.hostname, port: u.port, path: u.pathname, method,
+      // 必须带上 query：只发 pathname 会把 ?format=xlsx 这类参数悄悄丢掉，
+      // 于是"断言 501"的用例实际打到了另一条路由上（假红/假绿都可能）。
+      hostname: u.hostname, port: u.port, path: u.pathname + u.search, method,
       headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {},
     }, (resp) => {
       let body = ''
@@ -42,6 +44,23 @@ function req(url, method, payload) {
     r.on('error', rej)
     if (data) r.write(data)
     r.end()
+  })
+}
+
+// 二进制下载：按 Buffer 收（不能像 req 那样当字符串拼，否则 xlsx 会被 UTF-8 解码毁掉），
+// 落盘后再交给 openpyxl 读回来验证内容。
+function download(url, destPath) {
+  return new Promise((res, rej) => {
+    const u = new URL(url)
+    http.get({ hostname: u.hostname, port: u.port, path: u.pathname + u.search }, (resp) => {
+      const chunks = []
+      resp.on('data', (c) => chunks.push(c))
+      resp.on('end', () => {
+        const buf = Buffer.concat(chunks)
+        writeFileSync(destPath, buf)
+        res({ status: resp.statusCode, headers: resp.headers, bytes: buf.length })
+      })
+    }).on('error', rej)
   })
 }
 
@@ -153,6 +172,13 @@ async function main() {
   const rep0 = await json(req(base + '/api/report', 'GET'))
   ok(rep0.status === 200 && rep0.data.available === false, '未挂报表插件时 /api/report 探测为不可用')
   ok(typeof rep0.data.hint === 'string' && rep0.data.hint.length > 0, '探测接口给出可读原因', rep0.data.hint)
+  // 全量 xlsx 导出走同一条能力开关：能力不在场时必须 501 + 同一份可读原因，而不是 500 或空响应
+  const xlsx0 = await json(req(base + '/api/export?format=xlsx', 'GET'))
+  ok(xlsx0.status === 501 && typeof xlsx0.data.error === 'string' && xlsx0.data.error.length > 0,
+    '未挂报表插件时 /api/export?format=xlsx -> 501 + 可读原因', xlsx0.status + ' ' + (xlsx0.data.error || ''))
+  // JSON 导出不受影响（备用备份路径必须始终可用）
+  const json0 = await json(req(base + '/api/export', 'GET'))
+  ok(json0.status === 200 && json0.data.app === 'pomodmer', 'JSON 导出在全量 xlsx 加入后仍正常')
 
   console.log('\n=== 9. SSE 推送 ===')
   // tick 只在"正在计时"时推送（暂停时状态静止，本就不该有 tick）——先让番茄跑起来
@@ -332,6 +358,33 @@ async function main() {
     ok(metaExtra.comments.includes('B2'), '批注生效', JSON.stringify(metaExtra.comments))
     const backExtra = await ctx3.table.readSheet(extra, '样式')
     ok(backExtra.rows[0][0] === '合并标题', '写回合并区标题生效', JSON.stringify(backExtra.rows[0]))
+
+    console.log('\n=== 11d. 全量 xlsx 导出（GET /api/export?format=xlsx，附件下载）===')
+    // 先造一条计划外事件：9e 的导入把它清空了，这里要验证"新记录真能被带进表"
+    await json(req(base3 + '/api/unplanned', 'POST', { kind: 'external', note: '冒烟-全量导出' }))
+    // 走真实 HTTP：既验证响应头，也把字节落盘后**用 openpyxl 读回来**验证内容
+    const dlPath = join(dir, 'download.xlsx')
+    const dl = await download(base3 + '/api/export?format=xlsx', dlPath)
+    ok(dl.status === 200, 'GET /api/export?format=xlsx -> 200', String(dl.status))
+    ok(/spreadsheetml\.sheet/.test(dl.headers['content-type'] || ''), 'Content-Type 是 xlsx',
+      String(dl.headers['content-type']))
+    ok(/attachment; filename="pomodmer-all-.*\.xlsx"/.test(dl.headers['content-disposition'] || ''),
+      '带附件文件名', String(dl.headers['content-disposition']))
+    ok(dl.bytes > 0 && readFileSync(dlPath).subarray(0, 2).toString() === 'PK', '下载到的是真 xlsx（zip 魔数 PK）',
+      String(dl.bytes) + ' bytes')
+
+    const dlMeta = await ctx3.table.sheetMeta(dlPath, '计划外事件')
+    ok(dlMeta.sheets.length === 5 && dlMeta.sheets.includes('计划外事件'),
+      '全量导出含 5 张表（比周报多出「计划外事件」）', JSON.stringify(dlMeta.sheets))
+    ok(dlMeta.freeze_panes === 'A2', '「计划外事件」表头已冻结', String(dlMeta.freeze_panes))
+    ok(dlMeta.value_types[0] === 'datetime', '「计划外事件」时间列是原生 datetime', dlMeta.value_types.join(','))
+    const dlOverview = await ctx3.table.readSheet(dlPath, '概览')
+    ok(dlOverview.rows[1][1] === '全部', '概览标注统计区间=全部（区别于周报的"最近 N 天"）',
+      JSON.stringify(dlOverview.rows[1]))
+    const dlUnplanned = await ctx3.table.readSheet(dlPath, '计划外事件')
+    ok(dlUnplanned.rows.length === 2, '「计划外事件」= 表头 + 1 条记录', JSON.stringify(dlUnplanned.rows))
+    ok(dlUnplanned.rows[1][1] === '外部' && String(dlUnplanned.rows[1][2]).includes('全量导出'),
+      '事件的类型与备注正确落表', JSON.stringify(dlUnplanned.rows[1]))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }

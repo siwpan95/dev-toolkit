@@ -4,7 +4,7 @@
 import { Service } from 'cordis'
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
-import { resolve, extname, join, sep } from 'node:path'
+import { resolve, extname, join, sep, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 
@@ -93,11 +93,18 @@ export class HttpService extends Service {
     }
   }
 
+  // xlsx 能力缺席时的解释：三种原因（没装 Python / 装了缺 openpyxl / 被主动关闭）里
+  // 只有服务端知道是哪一种，所以文案在这里统一产出一份，别让各路由和前端各编一套。
+  _xlsxHint() {
+    return process.env.POMODMER_NO_XLSX === '1'
+      ? 'xlsx 报表能力已被 POMODMER_NO_XLSX=1 主动关闭（去掉该变量重启即恢复）'
+      : '未启用 xlsx 报表插件：装好 Python + openpyxl 后重启即自动启用（也可 POMODMER_CONFIG=cordis.with-xlsx.json 强制启用）'
+  }
+
   async _api(req, res, path, url) {
     const timer = this.ctx.timer
     const store = this.ctx.store
     const json = (code, body) => this._json(res, code, body)
-
     if (path === '/api/state' && req.method === 'GET') {
       return json(200, {
         settings: store.settings,
@@ -178,6 +185,25 @@ export class HttpService extends Service {
     }
 
     if (path === '/api/export' && req.method === 'GET') {
+      // format=xlsx：全量 xlsx（给人看/分析）；默认 JSON（用来回灌备份，可再导入）
+      if (url.searchParams.get('format') === 'xlsx') {
+        const report = this.ctx.get('report')
+        if (!report) return json(501, { error: this._xlsxHint() })
+        try {
+          const out = await report.full()
+          const buf = await readFile(out.file)
+          res.writeHead(200, {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': 'attachment; filename="' + basename(out.file) + '"',
+            'Content-Length': buf.length,
+            'Cache-Control': 'no-store',
+          })
+          this._broadcast('report', { file: out.file, scope: out.scope })
+          return res.end(buf)
+        } catch (e) {
+          return json(500, { error: 'xlsx 全量导出失败: ' + e.message })
+        }
+      }
       const body = JSON.stringify({ app: 'pomodmer', exportedAt: Date.now(), ...store.snapshot() }, null, 2)
       const name = 'pomodmer-' + new Date().toISOString().slice(0, 10) + '.json'
       res.writeHead(200, {
@@ -200,15 +226,12 @@ export class HttpService extends Service {
       }
     }
 
-    // ---- P2：周报导出（可选能力，依赖 ctx.table -> Python OpenPyXL）----
+    // ---- P2：周报/全量导出（可选能力，依赖 ctx.table -> Python OpenPyXL）----
     // 能力是否在场由启动时的清单决定（boot.mjs resolveConfigPath 自动探测），
-    // 所以这里的提示要能解释"为什么没有"，而不是只丢一个环境变量名。
+    // 所以提示要能解释"为什么没有"，而不是只丢一个环境变量名。
     if (path === '/api/report') {
       const report = this.ctx.get('report')
-      const off = process.env.POMODMER_NO_XLSX === '1'
-      const hint = off
-        ? 'xlsx 报表能力已被 POMODMER_NO_XLSX=1 主动关闭（去掉该变量重启即恢复）'
-        : '未启用 xlsx 报表插件：装好 Python + openpyxl 后重启即自动启用（也可 POMODMER_CONFIG=cordis.with-xlsx.json 强制启用）'
+      const hint = this._xlsxHint()
       if (req.method === 'GET') {
         return json(200, { available: !!report, hint: report ? null : hint })
       }

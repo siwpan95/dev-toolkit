@@ -431,14 +431,33 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 **顺带修掉**：`tools/sync-table-kit.mjs` 首版把 `defaultDir: "../cordis-table-app"` 按 `tools/` 解析，
 结果找成了 `pomodmer/cordis-table-app`；相对路径必须按**仓库根**解析。
 
+### 2026-09-29 · P2：全量数据 xlsx 导出（与 JSON 备份分工，实测通过）
+
+**做了什么**：把"导出"这条出口从"只有最近 7 天的周报"扩到"整份数据"，
+并明确两类文件的分工 —— **JSON 回灌备份 / xlsx 给人看与二次分析**。
+
+| 交付 | 位置 | 说明 |
+|---|---|---|
+| 导出逻辑合流 | `src/plugins/report.mjs` | 抽出共用的 `_export({ days, scope, all, includeUnplanned })`：`weekly({days})` 与新增的 `full()` 走同一套建表逻辑，避免两套代码各自漂移；`spanDays()` 从最早一条会话算跨度（带 10 年上限，防脏时间戳把「每日」表撑爆） |
+| 新表 | 同上 | 全量导出多一张「计划外事件」（时间/类型/备注/阶段/任务）—— 这些记录原先只有 JSON 带得走，人在 Excel 里根本看不到 |
+| HTTP 出口 | `src/plugins/http.mjs` | `GET /api/export?format=xlsx`：生成后**以附件流回**（正确 MIME + `Content-Disposition`），并复用 `/api/report` 的能力提示（`_xlsxHint()` 抽成一处，前端不再自己编文案） |
+| 前端 | `web/index.html` / `web/app.js` | 新增「导出数据 xlsx」按钮：按钮置灰 + "正在生成…" 反馈（生成要拉起 worker、写盘，没有反馈用户会反复点），拿到 blob 后触发下载并回显文件大小 |
+| 冒烟 | `src/_smoke_pom.mjs` | 第 8 节：能力不在场时 501 + 可读原因、JSON 导出不受影响；第 11d 节：真实 HTTP 下载 → 落盘 → **用 openpyxl 读回**验证 5 张表/冻结/datetime 类型/统计区间=全部/事件内容落表 |
+
+**验证**：`npm run smoke` → **ALL PASS**（EXIT=0）。
+
+**顺带修掉一个测试脚手架的坑**：冒烟里的 `req()` 只发 `u.pathname`，把 query 悄悄丢了 ——
+于是"断言 501"的用例实际打到了 `/api/export`（无 format）上，拿到 200 而假红。
+已改为 `u.pathname + u.search`：断言打错路由的假红/假绿都必须杜绝。
+
 ### 后续优先级（更新后）
 
 | 顺序 | 工作 | 状态 |
 |---|---|---|
 | P1 | xlsx 数据可用性（真实日期/数字格式/冻结表头/worker 崩溃） | ✅ 完成 |
-| P4 | 三件套统一到权威源（来源锁 + 同步工具 + 双向加固合流） | ✅ 本轮完成 |
-| P2 | 全量数据 xlsx 导出（复用同一层 `ctx.table`，与 JSON 备份互补） | 待做（下一步） |
-| P3 | Excel → 任务/会话导入（`readSheet` 反向；合并策略需先确认） | 待做（依赖 P1 的读回健壮性） |
+| P4 | 三件套统一到权威源（来源锁 + 同步工具 + 双向加固合流） | ✅ 完成 |
+| P2 | 全量数据 xlsx 导出（复用同一层 `ctx.table`，与 JSON 备份分工） | ✅ 本轮完成 |
+| P3 | Excel → 任务/会话导入（`readSheet` 反向） | 待做 —— **合并策略需先与用户确认**（追加 / 替换 / 按列映射 + 冲突处理） |
 
 ## 9. 附：本轮调研来源
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）

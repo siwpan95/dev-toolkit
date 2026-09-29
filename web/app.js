@@ -17,7 +17,7 @@ const el = {
   bars: $('bars'), heat: $('heat'),
   intNote: $('intNote'), intIn: $('btnIntIn'), intOut: $('btnIntOut'),
   unplannedList: $('unplannedList'), unplannedEmpty: $('unplannedEmpty'),
-  exportBtn: $('btnExport'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
+  exportBtn: $('btnExport'), exportXlsxBtn: $('btnExportXlsx'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
   ambient: $('cfgAmbient'), toastChk: $('cfgToast'), mini: $('btnMini'),
   reportBtn: $('btnReport'), reportHint: $('reportHint'), reportNote: $('reportNote'),
 }
@@ -514,6 +514,40 @@ async function loadReportAvailability() {
 }
 
 el.exportBtn.onclick = () => { window.location.href = '/api/export' }
+
+// 全量 xlsx：直接交给浏览器下载（服务端以附件流回，不经前端内存）。
+// 先把按钮点成"生成中…"——服务端要拉起 Python worker 写盘，几十条会话也要几百毫秒，
+// 没有任何反馈的话用户会以为按钮没反应而反复点。
+el.exportXlsxBtn.onclick = async () => {
+  el.exportXlsxBtn.disabled = true
+  el.ioHint.className = 'hint'
+  el.ioHint.textContent = '正在生成 xlsx…'
+  try {
+    const res = await fetch('/api/export?format=xlsx')
+    if (!res.ok) {
+      const out = await res.json().catch(() => ({}))
+      el.ioHint.className = 'hint err'
+      el.ioHint.textContent = '导出失败：' + (out.error || res.status)
+      return
+    }
+    const blob = await res.blob()
+    const name = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name ? name[1] : 'pomodmer-all.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    el.ioHint.textContent = '已导出 ' + a.download + '（' + Math.round(blob.size / 1024) + ' KB）'
+  } catch (e) {
+    el.ioHint.className = 'hint err'
+    el.ioHint.textContent = '导出失败：' + e.message
+  } finally {
+    el.exportXlsxBtn.disabled = false
+  }
+}
 
 el.importBtn.onclick = () => el.fileImport.click()
 el.fileImport.onchange = async () => {
