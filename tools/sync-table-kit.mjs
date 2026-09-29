@@ -34,7 +34,12 @@ const CHECK = has('--check') || has('--lock-only')
 const LOCK_ONLY = has('--lock-only')
 const FORCE = has('--force')
 
-const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex')
+// 哈希前统一行尾：来源锁要盯的是"内容有没有被改"，不是"这台机器按哪种行尾检出"。
+// core.autocrlf=true 的机器把同一提交检出成 CRLF，另一台检出成 LF ——
+// 若直接按原始字节哈希，新克隆一上来就体检失败，那是误报，比不检查更糟（会让人学会无视它）。
+// 语义变更（多一行、少一行、改一字）照样会被逮住，行尾策略差异则被吸收掉。
+const normalizeEol = (buf) => Buffer.from(buf.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')
+const sha256 = (buf) => 'sha256:' + createHash('sha256').update(normalizeEol(buf)).digest('hex')
 const readIfExists = (p) => (existsSync(p) ? readFileSync(p) : null)
 
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))

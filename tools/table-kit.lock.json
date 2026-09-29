@@ -1,14 +1,14 @@
 {
   "name": "cordis-table-kit",
-  "syncedAt": "2026-09-29T01:41:17.393Z",
+  "syncedAt": "2026-09-29T01:41:51.977Z",
   "source": {
     "repo": "https://gitee.com/siwpan/cordis-table-app.git",
     "dir": "../cordis-table-app",
     "commit": "c4d41cd5c3fc4f9a1fcf27dc781b8ea35bfc32ca"
   },
   "files": {
-    "src/core/bridge.mjs": "sha256:f8bcee7de39aebc1d4ddd6f771e85b023f3122c3156c6468eb53342943c160bf",
-    "src/plugins/table.mjs": "sha256:8d975f727a98be34de0f9a3f7890797f061f18e1d492a1fdbf3dba4ec4fcae45",
-    "python/rpc_server.py": "sha256:4ed8e02355fed19d7ba4e4d15ae9a67dc7e2635fcf49f124010c12ed3374e96a"
+    "src/core/bridge.mjs": "sha256:a71ecc9aed79e1bcb9a0e7a79119ab6d4d45082971b5603646dd4d67f31c3f75",
+    "src/plugins/table.mjs": "sha256:4c423c71773f507714820d99364d6abd5fe08922c7ed4a19dbd61a4d57c29e85",
+    "python/rpc_server.py": "sha256:6cd16cbc971d6141473076e2f4e810891cb7f7d556c601c39246bd6e27ea129c"
   }
 }
