@@ -186,23 +186,35 @@ export class HttpService extends Service {
     }
 
     if (path === '/api/export' && req.method === 'GET') {
-      // format=xlsx：全量 xlsx（给人看/分析）；默认 JSON（用来回灌备份，可再导入）
+      // format=xlsx：xlsx 导出（给人看/分析）。scope=all（默认，全量）/ weekly（周报，可带 days）。
+      // 两条链路都**以附件流回**：脚本可以用 /api/report POST 拿路径，人用这个直接下载。
       if (url.searchParams.get('format') === 'xlsx') {
         const report = this.ctx.get('report')
         if (!report) return json(501, { error: this._xlsxHint() })
+        const scope = url.searchParams.get('scope') || 'all'
+        if (scope !== 'all' && scope !== 'weekly') {
+          // 不认识的 scope 不能默默当成 all：用户以为导的是周报、拿到的是全量，很难发现
+          return json(400, { error: 'scope 只支持 all（全量）或 weekly（周报），收到：' + scope })
+        }
         try {
-          const out = await report.full()
+          const days = Number(url.searchParams.get('days')) || 7
+          const out = scope === 'weekly' ? await report.weekly({ days }) : await report.full()
           const buf = await readFile(out.file)
           res.writeHead(200, {
             'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition': 'attachment; filename="' + basename(out.file) + '"',
             'Content-Length': buf.length,
             'Cache-Control': 'no-store',
+            // 摘要走响应头（纯 ASCII，避免非 ASCII 头部的坑），前端据此回显"导了多少"
+            'X-Pomodmer-Info': JSON.stringify({
+              scope, days: out.days, sheets: out.sheets.length,
+              sessions: out.sessions, completed: out.summary.completed,
+            }),
           })
-          this._broadcast('report', { file: out.file, scope: out.scope })
+          this._broadcast('report', { file: out.file, scope })
           return res.end(buf)
         } catch (e) {
-          return json(500, { error: 'xlsx 全量导出失败: ' + e.message })
+          return json(500, { error: 'xlsx 导出失败: ' + e.message })
         }
       }
       const body = JSON.stringify({ app: 'pomodmer', exportedAt: Date.now(), ...store.snapshot() }, null, 2)

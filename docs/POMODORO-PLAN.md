@@ -488,6 +488,22 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 表格能力四步到此收官：**导出（周报/全量）→ 人改 → 回灌**闭环打通，三件套有单一权威源与来源锁，
 且每一步都有冒烟断言兜着。
 
+### 2026-09-29 · P2 补完：导出面做齐（周报也能直接下载）
+
+**起因**：P2 落地后两条导出链路的交付方式不一致 —— 全量导出是浏览器直接下载，
+而周报还停在"POST 生成到 output/ 并回一个磁盘路径"，UI 只把路径显示出来让用户自己去开文件。
+同一个面板上两个按钮行为不同，属于做到一半的出口。
+
+| 交付 | 位置 | 说明 |
+|---|---|---|
+| 下载路由统一 | `src/plugins/http.mjs` | `GET /api/export?format=xlsx` 增加 `scope=all`（默认，全量）/ `scope=weekly&days=N`（周报）；两条都**以附件流回**，并带 `X-Pomodmer-Info` 摘要头（纯 ASCII，规避非 ASCII 响应头） |
+| 未知 scope 报错 | 同上 | `scope=nope` → 400 + 可读原因。**不默默当全量**：用户以为导的是周报、拿到的是全量，这种错很难自己发现 |
+| 前端共用下载器 | `web/app.js` | 抽出 `downloadXlsx(url)`：拿 blob → 触发下载 → 读摘要头回显。周报按钮与 xlsx 按钮共用；两个按钮都补了禁用态与"正在生成…"反馈 |
+| 向后兼容 | 同上 | `POST /api/report` 原样保留（脚本/定时任务拿磁盘路径用），docs 说明两者分工 |
+| 冒烟 | `src/_smoke_pom.mjs` 第 11f 节（7 条） | scope=weekly 文件名带 weekly、摘要头 scope/sheets 正确、周报仍 4 张表（与全量 5 张区分）、`days=1` → 「每日」只有表头 + 1 天、未知 scope → 400、`POST /api/report` 老用法不破 |
+
+**验证**：`npm run smoke` → **ALL PASS**（EXIT=0）。
+
 ## 9. 附：本轮调研来源
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）
 - Pomotroid（开源番茄钟，Vue+Electron，v1.4.0）：pomotroid.org、GitCode/AtomGit 项目镜像与二次开发文档

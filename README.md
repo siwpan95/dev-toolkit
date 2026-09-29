@@ -99,9 +99,12 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 三种用法，同一份 worker 支撑：
 
 1. **UI / HTTP 出报表**（两条链路，分工明确）：
-   - `POST /api/report` → `report.weekly({ days })`：**周报**，最近 N 天，四张表：概览 / 每日 / 会话 / 任务。
-   - `GET /api/export?format=xlsx` → `report.full()`：**全量导出**，从第一条会话到今天，五张表
-     （多一张「计划外事件」），以附件直接下载。
+   - `GET /api/export?format=xlsx&scope=weekly&days=7` → `report.weekly({ days })`：**周报**，最近 N 天，
+     四张表：概览 / 每日 / 会话 / 任务。UI 的「导出周报 xlsx」按钮走这条，直接下载。
+   - `GET /api/export?format=xlsx`（`scope=all`）→ `report.full()`：**全量导出**，从第一条会话到今天，
+     五张表（多一张「计划外事件」），同样以附件直接下载。
+   - 两个下载响应都带 `X-Pomodmer-Info` 摘要头（scope / days / 表数 / 会话数 / 完成番茄），前端据此回显。
+   - 需要**磁盘路径**而不是浏览器下载时（脚本、定时任务），仍可用 `POST /api/report` → 返回生成的文件路径。
    - **回灌**：`POST /api/import/xlsx?mode=preview|apply` → `report.importXlsx(file, { mode })`。
      导出 → 在 Excel 里改 → 导回，是这条能力的完整闭环。语义是**去重追加**：只新增 + 有限更新
      （任务的预估/完成状态），**从不删除**已有记录；先 `preview` 拿到"新增/更新/跳过"的计划，确认后再 `apply`。
@@ -228,7 +231,7 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 | DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
 | GET / POST | `/api/report` | 周报能力探测 / 生成周报 xlsx（未启用时 GET 给提示、POST 返回 501） |
 | GET | `/api/export` | 导出全部数据（JSON 附件；**用来回灌备份**，可被 `/api/import` 再导入） |
-| GET | `/api/export?format=xlsx` | 全量 xlsx 导出（5 张表：概览/每日/会话/任务/计划外事件；附件下载，**给人看与二次分析**） |
+| GET | `/api/export?format=xlsx` | xlsx 导出（附件下载）。`scope=all`（默认，5 张表全量）/ `scope=weekly&days=7`（周报 4 张表）；响应头 `X-Pomodmer-Info` 带回摘要 |
 | POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
 | POST | `/api/import/xlsx?mode=preview\|apply` | 从 xlsx **回灌**：`preview` 只算不写（先看会新增/更新/跳过多少），`apply` 才落库；去重追加，**永不删已有记录** |
 

@@ -479,23 +479,44 @@ el.save.onclick = async () => {
 
 el.mini.onclick = () => { ensureAudio(); openMini() }
 
+// 两个 xlsx 按钮共用这一条下载逻辑：拿 blob → 触发下载 → 顺带把服务端摘要带回来回显。
+// 抽出来是因为"直接改 window.location"没法读响应头、也没法在失败时给人话错误。
+async function downloadXlsx(url) {
+  const res = await fetch(url)
+  if (!res.ok) {
+    const out = await res.json().catch(() => ({}))
+    throw new Error(out.error || ('HTTP ' + res.status))
+  }
+  const blob = await res.blob()
+  const m = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)
+  const filename = m ? m[1] : 'pomodmer.xlsx'
+  const href = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(href)
+  let info = null
+  try { info = JSON.parse(res.headers.get('x-pomodmer-info') || 'null') } catch { /* 摘要可选 */ }
+  return { filename, size: blob.size, info }
+}
+
 el.reportBtn.onclick = async () => {
+  el.reportBtn.disabled = true
   el.reportHint.className = 'hint'
-  el.reportHint.textContent = '生成中…'
+  el.reportHint.textContent = '正在生成周报…'
   try {
-    const res = await fetch('/api/report', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 7 }),
-    })
-    const d = await res.json()
-    if (res.ok) {
-      el.reportHint.textContent = `已生成 ${d.file}（${d.summary.completed} 个番茄 / ${d.sessions} 条会话 / ${d.sheets.length} 张表）`
-    } else {
-      el.reportHint.className = 'hint err'
-      el.reportHint.textContent = '失败：' + (d.error || res.status)
-    }
+    // 与「导出数据 xlsx」走同一条下载路径：生成的文件同样落在 output/，但直接交付给浏览器
+    const { filename, size, info } = await downloadXlsx('/api/export?format=xlsx&scope=weekly&days=7')
+    const extra = info ? `（${info.completed} 个番茄 / ${info.sessions} 条会话 / ${info.sheets} 张表）` : ''
+    el.reportHint.textContent = `已下载 ${filename}${extra} · ${Math.round(size / 1024)} KB`
   } catch (e) {
     el.reportHint.className = 'hint err'
     el.reportHint.textContent = '失败：' + e.message
+  } finally {
+    el.reportBtn.disabled = false
   }
 }
 
@@ -524,24 +545,9 @@ el.exportXlsxBtn.onclick = async () => {
   el.ioHint.className = 'hint'
   el.ioHint.textContent = '正在生成 xlsx…'
   try {
-    const res = await fetch('/api/export?format=xlsx')
-    if (!res.ok) {
-      const out = await res.json().catch(() => ({}))
-      el.ioHint.className = 'hint err'
-      el.ioHint.textContent = '导出失败：' + (out.error || res.status)
-      return
-    }
-    const blob = await res.blob()
-    const name = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name ? name[1] : 'pomodmer-all.xlsx'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    el.ioHint.textContent = '已导出 ' + a.download + '（' + Math.round(blob.size / 1024) + ' KB）'
+    const { filename, size, info } = await downloadXlsx('/api/export?format=xlsx')
+    const extra = info ? `（${info.sessions} 条会话 / ${info.sheets} 张表）` : ''
+    el.ioHint.textContent = `已导出 ${filename}${extra} · ${Math.round(size / 1024)} KB`
   } catch (e) {
     el.ioHint.className = 'hint err'
     el.ioHint.textContent = '导出失败：' + e.message

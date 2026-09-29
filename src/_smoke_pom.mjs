@@ -469,6 +469,34 @@ async function main() {
     const notZip = await json(postBinaryRaw(base3 + '/api/import/xlsx', Buffer.from('definitely not a zip')))
     ok(notZip.status === 400 && /xlsx/.test(notZip.data.error || ''), '非 xlsx 文件 -> 400 + 可读原因',
       notZip.status + ' ' + (notZip.data.error || ''))
+
+    console.log('\n=== 11f. 导出面做齐：周报也能直接下载（scope/days）===')
+    const wkPath = join(dir, 'weekly-dl.xlsx')
+    const wk = await download(base3 + '/api/export?format=xlsx&scope=weekly&days=7', wkPath)
+    ok(wk.status === 200 && /filename="pomodmer-weekly-/.test(wk.headers['content-disposition'] || ''),
+      'scope=weekly 下载的是周报文件（文件名带 weekly）', String(wk.headers['content-disposition']))
+    const wkInfo = JSON.parse(wk.headers['x-pomodmer-info'] || 'null')
+    ok(wkInfo && wkInfo.scope === 'weekly' && wkInfo.sheets === 4,
+      '响应头带回摘要（scope=weekly / 4 张表）', JSON.stringify(wkInfo))
+    const wkMeta = await ctx3.table.sheetMeta(wkPath, '概览')
+    ok(wkMeta.sheets.length === 4 && !wkMeta.sheets.includes('计划外事件'),
+      '周报仍 4 张表（与全量的 5 张区分开）', JSON.stringify(wkMeta.sheets))
+    const wkOverview = await ctx3.table.readSheet(wkPath, '概览')
+    ok(wkOverview.rows[1][1] === '最近 7 天', '概览统计区间跟随 days=7', JSON.stringify(wkOverview.rows[1]))
+
+    const d1Path = join(dir, 'weekly-1d.xlsx')
+    await download(base3 + '/api/export?format=xlsx&scope=weekly&days=1', d1Path)
+    const d1 = await ctx3.table.readSheet(d1Path, '每日')
+    ok(d1.max_row === 2, 'days=1 -> 「每日」只有表头 + 1 天', String(d1.max_row))
+
+    // 不认识的 scope 必须报错，而不是默默给全量（否则"以为导了周报"很难发现）
+    const badScope = await json(req(base3 + '/api/export?format=xlsx&scope=nope', 'GET'))
+    ok(badScope.status === 400 && /scope/.test(badScope.data.error || ''), '未知 scope -> 400 + 可读原因',
+      badScope.status + ' ' + (badScope.data.error || ''))
+    // POST /api/report 保持向后兼容（脚本/定时任务用它拿磁盘路径）
+    const legacy = await json(req(base3 + '/api/report', 'POST', { days: 7 }))
+    ok(legacy.status === 200 && typeof legacy.data.file === 'string',
+      'POST /api/report 仍返回磁盘路径（老用法不破）', legacy.status + ' ' + (legacy.data.file || ''))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }
