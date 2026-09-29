@@ -3,6 +3,10 @@
     {
       "id": "table",
       "name": "./src/plugins/table.mjs"
+    },
+    {
+      "id": "csv",
+      "name": "./src/plugins/csv.mjs"
     }
   ]
 }

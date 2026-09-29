@@ -30,6 +30,10 @@
       "config": {
         "outDir": "output"
       }
+    },
+    {
+      "id": "csv",
+      "name": "./src/plugins/csv.mjs"
     }
   ]
 }

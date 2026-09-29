@@ -222,7 +222,18 @@ await sleep(2500)
 const rangeHint = await evaluate(`document.querySelector('#ioHint').textContent`)
 ok(/已导出 pomodmer-range-/.test(rangeHint), '再点一次 → 区间报表完成并回显', rangeHint)
 
-// 7) 全程没有前端 JS 报错
+// 7) CSV / TSV（纯 JS 出口：即使 xlsx 按钮是灰的，这两个也应该能用）
+await evaluate(`document.querySelector('#btnCsv').click()`)
+await sleep(1500)
+const csvHint = await evaluate(`document.querySelector('#ioHint').textContent`)
+ok(/已导出 pomodmer-sessions-all\.csv/.test(csvHint), '点「导出 CSV」→ 完成并回显文件名', csvHint)
+await evaluate(`document.querySelector('#csvSheet').value = '每日'`)
+await evaluate(`document.querySelector('#btnTsv').click()`)
+await sleep(1500)
+const tsvHint = await evaluate(`document.querySelector('#ioHint').textContent`)
+ok(/已导出 pomodmer-daily-all\.tsv/.test(tsvHint), '切表后点「导出 TSV」→ 文件名跟随所选表', tsvHint)
+
+// 8) 全程没有前端 JS 报错
 ok(consoleErrors.length === 0, '页面无 JS 异常/console.error', consoleErrors.slice(0, 2).join(' | '))
 
 await stopHost()

@@ -220,7 +220,8 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 **P2**：xlsx 导出四条链路 —— 周报（最近 N 天）/ **月报**（整月 + 「本月 vs 上月」对比）/
 **自定义区间**（任意 from~to）/ **全量导出**（从第一条会话到今天）；日期是 Excel 原生日期、带数字格式、
 表头冻结；**xlsx 回灌**（导出 → 在 Excel 里改 → 导回，先预览再确认，去重追加不删记录，
-且**跨时区导入逐毫秒精确**）；白噪音与棕噪音（Web Audio 实时合成）、
+且**跨时区导入逐毫秒精确**）；**CSV/TSV 出口**（纯 JS，没装 Python 也能导原始数据）；
+白噪音与棕噪音（Web Audio 实时合成）、
 迷你窗（独立小窗只显示倒计时）、Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
 
 **P3（可选）**：Electron 桌面壳 —— 托盘常驻、窗口置顶、`Ctrl+Alt+Space` 全局快捷键、
@@ -243,6 +244,7 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 | DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
 | GET / POST | `/api/report` | 周报能力探测 / 生成周报 xlsx（未启用时 GET 给提示、POST 返回 501） |
 | GET | `/api/export` | 导出全部数据（JSON 附件；**用来回灌备份**，可被 `/api/import` 再导入） |
+| GET | `/api/export?format=csv\|tsv&sheet=会话` | **CSV / TSV 出口（纯 JS，不需要 Python）**：`sheet=` 概览/每日/会话/任务/计划外事件；可选 `scope=`（同 xlsx）、`bom=0`（给 pandas/grep 用）；默认带 UTF-8 BOM 便于 Excel 双击打开 |
 | GET | `/api/export?format=xlsx` | xlsx 导出（附件下载）。`scope=all`（默认，5 张可见表全量）/ `weekly&days=7`（周报 4 张）/ `month[&month=YYYY-MM]`（月报 6 张，含「本月 vs 上月」对比）/ `range&from=&to=`（自定义区间）；入参非法 → 400；响应头 `X-Pomodmer-Info` 带回摘要 |
 | POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
 | POST | `/api/import/xlsx?mode=preview\|apply` | 从 xlsx **回灌**：`preview` 只算不写（先看会新增/更新/跳过多少），`apply` 才落库；去重追加，**永不删已有记录** |

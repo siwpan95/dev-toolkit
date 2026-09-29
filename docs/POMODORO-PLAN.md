@@ -609,6 +609,35 @@ Node 22 自带全局 `WebSocket`，浏览器自带 CDP，用系统 Edge/Chrome �
 "不一致"而退回秒级换算 —— 表现就是"时区修好了，但毫秒丢了"。改成拿**按文件偏移换算后的值**去比才正确。
 （这条也说明：修好一个缺陷之后，必须再验"它到底走了哪条分支"，否则很容易只修到一半。）
 
+### 2026-09-29 · P7：CSV / TSV 出口（纯 JS，不需要 Python，实测通过）
+
+**为什么值得做**：xlsx 出口依赖 Python + openpyxl（可选能力）。"把数据导出来"这件事不该被它绑住 ——
+没装 Python 的机器也得能把会话导给 Excel / pandas / grep。所以 P7 是一条**独立于表格能力**的出口。
+
+**做法**（关键在结构，不在代码量）：
+
+| 交付 | 说明 |
+|---|---|
+| `src/core/view.mjs`（新） | 把"数据 → 表格行"抽成**纯函数层**：口径（all/weekly/month/all + 区间聚合）与各表行数据都在这里，不碰文件、不碰 ctx。xlsx 与 CSV **共用同一份行数据**，所以"两者一致"是结构性成立而不是人工对齐 |
+| `src/plugins/report.mjs`（重构） | 变成"纯写入"：从 view 取行 → 写 xlsx + 样式 + 隐藏元数据表。行数据来源换成 view.mjs 后，这个文件反而更短了 |
+| `src/plugins/csv.mjs`（新，**默认加载**） | CSV/TSV 渲染：RFC 4180 转义、CRLF、默认 UTF-8 BOM（Excel 双击不乱码，`bom=0` 给 pandas/grep）、附件名用 ASCII slug（中文表名会让 Node 写响应头时抛 ERR_INVALID_CHAR） |
+| 清单 | 三份清单都挂上 `csv`（`cordis.json` 现在是 store/timer/http/csv）—— 这样**没有 Python 也有 CSV** |
+
+**验收（实测）**：
+
+- 载入一份**只有** store/timer/http/csv 的清单：`ctx.table`、`ctx.report` 都不在场，
+  `GET /api/export?format=xlsx` 如实 501，而 **CSV 正常下载**。
+- 转义：任务标题里塞 `写代码, "重构"\n第二行`，导出的 CSV 里是 `"写代码, ""重构""\n第二行"`，
+  用独立写的 RFC 4180 解析器读回来逐字相等，且同行其它列没错位。
+- BOM：CSV 默认带（U+FEFF），`bom=0` 不带；TSV 默认不带。
+- 校验：未知 `sheet` → 400 "没有这张表：…"；未知 `scope` → 400。
+- **CSV 与同名 xlsx 逐格一致**：现造一份 xlsx，对 概览/每日/会话/任务/计划外事件 五张表逐格比对
+  （唯一允许的差异是日期在 xlsx 里读回是 `…T00:00:00`、CSV 里是纯日期，比对时归一）。
+
+**过程中踩的一个语法坑**（值得记下来）：`static inject = ['store', 'timer']` 后面紧跟
+`[Service.init]() {` 时，少了分号会被 ASI 拼成 `['store','timer'][Service.init]()` —— 直接 SyntaxError。
+我顺手全仓库扫了一遍同类写法（类字段后紧跟以 `[` 开头的行），除这一处外没有别的地方。
+
 ### 后续优先级（P1–P4 全部完成的收口表）
 
 > 本表的 P1–P4 指"表格能力专项"的编号，与 README 路线图的 P0–P3 无关；**当前计划见 §9（P5 → P6 → P7 → P8）**。
@@ -631,7 +660,7 @@ Node 22 自带全局 `WebSocket`，浏览器自带 CDP，用系统 Edge/Chrome �
 |---|---|---|---|---|---|
 | **P5** | **压力与边界加固**：① `bridge.call()` 加超时 + 超时后**重启 worker**；② 大数据的导出耗时/内存基线（几千条会话）；③ 跨时区/DST 的日期渲染 | ✅ **已完成**（记录见 §8「P5：压力与边界加固」） | 唯一"保护已有功能"的一条：worker 卡住曾让所有 xlsx 请求**永久挂起**（UI 停在"正在生成…"，只能重启宿主） | 已改：`cordis-table-app`（权威源 bridge/table.mjs）→ 同步进 pomodmer；新增 `tools/bench-export.mjs` | 已验：卡死→超时报错不挂起；崩溃→下次调用自动拉起新 worker；500/3000 条耗时与内存有实测数字；同 TZ 往返 0 漂移、DST 跳变/回拨渲染正确 |
 | **P6** | **月度 / 自定义区间报表**：`scope=month`、`scope=range&from=&to=`，以及"本月 vs 上月"对比表（+ 跨时区回灌修复） | ✅ **已完成**（记录见 §8「P6」） | 复用现有 `_export()` 建表逻辑，改动小、用户马上能感知（月度回顾是番茄钟最自然的第二个视角） | 已改：`report.mjs`（`month`/`range`/`_aggregate` + `_meta`/`_epochs`）、`http.mjs`（scope 与 400 校验）、`web/`（月报与区间入口）、权威源 `add_sheet(hidden)`+`sheet_meta` | 已验：对比表/区间边界/非法入参 400；**跨时区导入逐毫秒相等**（含 DST 跳变与回拨时刻）；冒烟 144 条 + 界面 14 条全绿 |
-| **P7** | **CSV / TSV 出口**：`format=csv&sheet=会话`（给 pandas / grep / Excel 导入用） | 待做 | 便宜且**不依赖 Python**：没装 openpyxl 的机器也能导出原始数据；同时给出"轻量出口"这一条独立路径 | `src/plugins/http.mjs`（新 format 分支）、`web/app.js`（多一个按钮/下拉） | CSV 转义正确（逗号/引号/换行/中文）；无 Python 环境下仍可用；与 xlsx 同名表的数据一致（同一份行数据来源） |
+| **P7** | **CSV / TSV 出口**：`format=csv&sheet=会话`（给 pandas / grep / Excel 导入用） | ✅ **已完成**（记录见 §8「P7」） | 便宜且**不依赖 Python**：没装 openpyxl 的机器也能导出原始数据；同时给出"轻量出口"这一条独立路径 | 已改：新增 `src/core/view.mjs`（纯数据层）与 `src/plugins/csv.mjs`（默认加载），`report.mjs` 改为纯写入；三份清单加 csv | 已验：无 table/report 时 CSV 照常可用（xlsx 501）；RFC 4180 转义与 BOM 行为；**CSV 与同名 xlsx 五张表逐格一致**；冒烟 162 条 + 界面 16 条全绿 |
 | **P8** | **报表里嵌图表**：openpyxl BarChart/LineChart（趋势、每日对比），让 xlsx 自带图 | 待做 | 价值最高但改动最大：要给三件套加 `add_chart` 等新方法 → 改权威源 → 同步 → 两个仓库都要回归；且会扩大与另一个消费者共享的 API 面 | `cordis-table-app`（权威源：worker + table.mjs）、`tools/table-kit.lock.json`（同步）、`src/plugins/report.mjs` | 新方法在两个仓库的测试里都有断言；同步后 `check:kit` 一致；生成的 xlsx 用 openpyxl 读回能查到 chart 对象；图表在 Excel/WPS 打开无警告 |
 
 **同时明确"暂不做"的**（避免越做越散）：

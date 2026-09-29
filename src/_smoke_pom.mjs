@@ -99,6 +99,31 @@ const postBinaryRaw = (url, buf) => {
   })
 }
 
+// 极简 CSV 解析（只为本冒烟用）：按 RFC 4180 处理引号包裹、内部引号翻倍、字段内换行。
+// 不引依赖，也顺便当作"我们写出去的 CSV 真的能被标准解析器读回来"的验证。
+function parseCsv(text, delimiter = ',') {
+  const rows = []
+  let row = []
+  let field = ''
+  let quoted = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++ } else { quoted = false }
+      } else field += c
+    } else if (c === '"') {
+      quoted = true
+    } else if (c === delimiter) {
+      row.push(field); field = ''
+    } else if (c === '\n') {
+      row.push(field.replace(/\r$/, '')); rows.push(row); row = []; field = ''
+    } else field += c
+  }
+  if (field !== '' || row.length) { row.push(field.replace(/\r$/, '')); rows.push(row) }
+  return rows
+}
+
 const json = async (p) => { const r = await p; return { status: r.status, data: r.body ? JSON.parse(r.body) : null, raw: r.body } }
 
 async function waitFor(url, pred, timeoutMs = 15000, step = 200) {
@@ -333,6 +358,7 @@ async function main() {
       { id: 'http', name: './src/plugins/http.mjs', config: { host: '127.0.0.1', port: 0, open: false } },
       { id: 'table', name: './src/plugins/table.mjs', config: { timeoutMs: 7000 } },
       { id: 'report', name: './src/plugins/report.mjs', config: { outDir: dir.replace(/\\/g, '/') } },
+      { id: 'csv', name: './src/plugins/csv.mjs' },
     ],
   }, null, 2))
   const ctx3 = await bootHost({ config: cfg2 })
@@ -582,6 +608,30 @@ async function main() {
     const badDay = await json(req(base3 + '/api/export?format=xlsx&scope=range&from=2026-02-30&to=2026-03-01', 'GET'))
     ok(badDay.status === 400 && /合法日期/.test(badDay.data.error || ''), '2026-02-30 这类假日期 -> 400',
       badDay.status + ' ' + (badDay.data.error || ''))
+
+    console.log('\n=== 11l. P7：CSV 与同名 xlsx 表逐格一致（同一份行数据来源）===')
+    // 现造一份 xlsx 再比对：两边都取"此刻的 store"，否则中途导入的数据会让它们天然不同。
+    const cmpXlsx = await ctx3.report.full()
+    const sameCell = (a, b) => {
+      const x = a === null || a === undefined ? '' : String(a)
+      const y = b === null || b === undefined ? '' : String(b)
+      if (x === y) return true
+      // 唯一已知的表示差异：日期在 xlsx 里读回来是 datetime（T00:00:00），CSV 里是纯日期
+      const norm = (s) => (/^\d{4}-\d{2}-\d{2}T00:00:00$/.test(s) ? s.slice(0, 10) : s)
+      return norm(x) === norm(y)
+    }
+    for (const sheet of ['概览', '每日', '会话', '任务', '计划外事件']) {
+      const csvRows = parseCsv(ctx3.csv.render({ sheet, scope: 'all' }).text.replace(/^\uFEFF/, ''))
+      const xlsxRows = (await ctx3.table.readSheet(cmpXlsx.file, sheet)).rows
+      const same = csvRows.length === xlsxRows.length
+        && csvRows.every((r, i) => r.length === xlsxRows[i].length && r.every((c, j) => sameCell(c, xlsxRows[i][j])))
+      ok(same, `「${sheet}」CSV 与 xlsx 逐格一致（各 ${csvRows.length} 行）`,
+        same ? '' : JSON.stringify({ csv: csvRows[0], xlsx: xlsxRows[0] }))
+    }
+    // 同一份数据、不同格式：CSV 行数应等于 xlsx 的数据行数（不含表头）
+    const csvSessRows = parseCsv(ctx3.csv.render({ sheet: '会话', scope: 'all' }).text.replace(/^\uFEFF/, '')).length - 1
+    ok(csvSessRows === cmpXlsx.sessions, 'CSV「会话」数据行数 == 导出摘要里的会话数',
+      csvSessRows + ' vs ' + cmpXlsx.sessions)
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }
@@ -682,6 +732,80 @@ async function main() {
     if (envBackup.off === undefined) delete process.env.POMODMER_NO_XLSX
     else process.env.POMODMER_NO_XLSX = envBackup.off
   }
+
+  console.log('\n=== 15. P7：CSV / TSV 出口（纯 JS，**不需要 Python**）===')
+  // 关键验收：这份清单**只有** store/timer/http/csv —— 没有 table、没有 report。
+  // xlsx 出口在这种情况下是 501，而 CSV 必须照常可用：这就是 P7 存在的理由。
+  const csvCfg = join(dir, 'cordis.csv.json')
+  const csvFile = join(dir, 'store-csv.json')
+  writeFileSync(csvCfg, JSON.stringify({
+    entries: [
+      { id: 'store', name: './src/plugins/store.mjs', config: { file: csvFile } },
+      { id: 'timer', name: './src/plugins/timer.mjs' },
+      { id: 'http', name: './src/plugins/http.mjs', config: { host: '127.0.0.1', port: 0, open: false } },
+      { id: 'csv', name: './src/plugins/csv.mjs' },
+    ],
+  }, null, 2))
+  const csvCtx = await bootHost({ config: csvCfg })
+  const csvBase = csvCtx.http.url.replace(/\/$/, '')
+  ok(!!csvCtx.csv && !csvCtx.table && !csvCtx.report,
+    '清单只有 store/timer/http/csv：table 与 report 都不在场', JSON.stringify({ csv: !!csvCtx.csv, table: !!csvCtx.table }))
+
+  // 造点数据，其中一条任务标题里塞满 CSV 的"地雷"：逗号、双引号、换行
+  const nasty = '写代码, "重构"\n第二行'
+  await json(req(csvBase + '/api/tasks', 'POST', { title: nasty, estimate: 3 }))
+  await json(req(csvBase + '/api/tasks', 'POST', { title: '普通任务', estimate: 1 }))
+  await json(req(csvBase + '/api/unplanned', 'POST', { kind: 'external', note: '同事敲门' }))
+
+  const dlCsvPath = join(dir, 'sessions.csv')
+  const dlCsv = await download(`${csvBase}/api/export?format=csv&sheet=${encodeURIComponent('任务')}`, dlCsvPath)
+  ok(dlCsv.status === 200 && /text\/csv/.test(dlCsv.headers['content-type'] || ''),
+    '无 table/report 时 CSV 仍可下载（xlsx 在这份清单里是 501）', dlCsv.status + ' ' + (dlCsv.headers['content-type'] || ''))
+  const xlsx501 = await json(req(csvBase + '/api/export?format=xlsx', 'GET'))
+  ok(xlsx501.status === 501, '同一份清单里 xlsx 如实返回 501（能力不在场就说清楚）', String(xlsx501.status))
+
+  const csvText = readFileSync(dlCsvPath, 'utf8')
+  ok(csvText.charCodeAt(0) === 0xfeff, '默认带 UTF-8 BOM（Excel 双击打开中文不乱码）', 'U+' + csvText.charCodeAt(0).toString(16))
+  const csvLines = parseCsv(csvText.replace(/^\uFEFF/, ''))
+  ok(csvLines[0].join('|') === '任务|预估番茄|实际番茄|已完成', '表头正确', JSON.stringify(csvLines[0]))
+  const nastyRow = csvLines.find((r) => r[0] === nasty)
+  ok(!!nastyRow, '含逗号/引号/换行的标题被正确转义并能原样解析回来', JSON.stringify(csvLines.slice(1)))
+  ok(nastyRow && nastyRow[1] === '3', '转义行的其它列没错位（预估番茄=3）', JSON.stringify(nastyRow))
+  ok(csvText.includes('"写代码, ""重构""\n第二行"'), '转义形态符合 RFC 4180（双引号包裹 + 内部引号翻倍）',
+    JSON.stringify(csvText.split('\r\n').slice(1, 3)))
+
+  // 与 xlsx 同名表逐格比对：CSV 与 xlsx 必须来自同一份行数据
+  const csvSess = parseCsv(readFileSync(await (async () => {
+    const p = join(dir, 'sessions2.csv')
+    await download(`${csvBase}/api/export?format=csv&sheet=${encodeURIComponent('会话')}`, p)
+    return p
+  })(), 'utf8').replace(/^\uFEFF/, ''))
+  ok(csvSess.length === 1, '空库的「会话」表只有表头', JSON.stringify(csvSess))
+
+  // TSV：默认不带 BOM，用制表符分隔
+  const tsvPath = join(dir, 'tasks.tsv')
+  const dlTsv = await download(`${csvBase}/api/export?format=tsv&sheet=${encodeURIComponent('任务')}`, tsvPath)
+  const tsvText = readFileSync(tsvPath, 'utf8')
+  ok(dlTsv.status === 200 && /tab-separated/.test(dlTsv.headers['content-type'] || ''), 'TSV 的 Content-Type 正确',
+    String(dlTsv.headers['content-type']))
+  ok(tsvText.charCodeAt(0) !== 0xfeff && tsvText.includes('\t'), 'TSV 默认不带 BOM、用制表符分隔',
+    'BOM=' + (tsvText.charCodeAt(0) === 0xfeff))
+  ok(parseCsv(tsvText, '\t').find((r) => r[0] === nasty), 'TSV 里同样能原样解析回含特殊字符的标题')
+
+  // 入参校验与 sheet 白名单
+  const badSheet = await json(req(csvBase + '/api/export?format=csv&sheet=' + encodeURIComponent('不存在'), 'GET'))
+  ok(badSheet.status === 400 && /没有这张表/.test(badSheet.data.error || ''), '未知 sheet -> 400 + 可读原因',
+    badSheet.status + ' ' + (badSheet.data.error || ''))
+  const badScope2 = await json(req(csvBase + '/api/export?format=csv&scope=nope', 'GET'))
+  ok(badScope2.status === 400, '未知 scope -> 400', String(badScope2.status))
+  // ?bom=0：给 pandas/grep 用（BOM 会混进第一列列名）
+  const noBomPath = join(dir, 'nobom.csv')
+  await download(`${csvBase}/api/export?format=csv&sheet=${encodeURIComponent('任务')}&bom=0`, noBomPath)
+  ok(readFileSync(noBomPath, 'utf8').charCodeAt(0) !== 0xfeff, 'bom=0 时确实不带 BOM')
+  // 文件名与响应头只用 ASCII slug（中文会让 Node 写头部时抛 ERR_INVALID_CHAR）
+  const cd = dlCsv.headers['content-disposition'] || ''
+  ok(/filename="pomodmer-tasks-all\.csv"/.test(cd), '附件名用 ASCII slug（中文表名不进响应头）', cd)
+  await stopHost()
 
   console.log('\n=== 结果 ===')
   console.log(failed === 0 ? '  ALL PASS' : '  FAILED: ' + failed + ' 项')

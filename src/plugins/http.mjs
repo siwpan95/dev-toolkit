@@ -192,9 +192,44 @@ export class HttpService extends Service {
     }
 
     if (path === '/api/export' && req.method === 'GET') {
+      const format = url.searchParams.get('format')
+      // CSV/TSV：纯 JS 出口，**不依赖 Python**（xlsx 能力关掉/没装 openpyxl 时照样能用）
+      if (format === 'csv' || format === 'tsv') {
+        const csv = this.ctx.get('csv')
+        if (!csv) return json(501, { error: 'CSV 出口未挂载：插件清单里缺 csv 条目' })
+        const scope = url.searchParams.get('scope') || 'all'
+        if (!['all', 'weekly', 'month', 'range'].includes(scope)) {
+          return json(400, { error: 'scope 只支持 all / weekly / month / range，收到：' + scope })
+        }
+        try {
+          const out = csv.render({
+            sheet: url.searchParams.get('sheet') || '会话',
+            scope,
+            days: Number(url.searchParams.get('days')) || undefined,
+            month: url.searchParams.get('month') || undefined,
+            from: url.searchParams.get('from') || undefined,
+            to: url.searchParams.get('to') || undefined,
+            delimiter: format === 'tsv' ? '\t' : ',',
+            bom: url.searchParams.has('bom') ? url.searchParams.get('bom') !== '0' : undefined,
+          })
+          const buf = Buffer.from(out.text, 'utf8')
+          res.writeHead(200, {
+            'Content-Type': (format === 'tsv' ? 'text/tab-separated-values' : 'text/csv') + '; charset=utf-8',
+            // 文件名与响应头都只用 ASCII slug：中文表名会让 Node 在写头部时直接抛 ERR_INVALID_CHAR
+            'Content-Disposition': 'attachment; filename="pomodmer-' + out.slug + '-' + out.fileTag + '.' + format + '"',
+            'Content-Length': buf.length,
+            'Cache-Control': 'no-store',
+            'X-Pomodmer-Info': JSON.stringify({ scope, sheet: out.slug, rows: out.rows, format }),
+          })
+          this._broadcast('report', { scope, sheet: out.sheet, format })
+          return res.end(buf)
+        } catch (e) {
+          return json(e.code === 'BAD_INPUT' ? 400 : 500, { error: '导出失败: ' + e.message })
+        }
+      }
       // format=xlsx：xlsx 导出（给人看/分析）。scope=all（默认，全量）/ weekly（周报，可带 days）。
       // 两条链路都**以附件流回**：脚本可以用 /api/report POST 拿路径，人用这个直接下载。
-      if (url.searchParams.get('format') === 'xlsx') {
+      if (format === 'xlsx') {
         const report = this.ctx.get('report')
         if (!report) return json(501, { error: this._xlsxHint() })
         const scope = url.searchParams.get('scope') || 'all'

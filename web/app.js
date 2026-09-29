@@ -20,6 +20,7 @@ const el = {
   exportBtn: $('btnExport'), exportXlsxBtn: $('btnExportXlsx'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
   importXlsxBtn: $('btnImportXlsx'), fileImportXlsx: $('fileImportXlsx'), applyXlsxBtn: $('btnApplyXlsx'),
   monthBtn: $('btnMonth'), rangeBtn: $('btnRange'), rangeFrom: $('rangeFrom'), rangeTo: $('rangeTo'),
+  csvBtn: $('btnCsv'), tsvBtn: $('btnTsv'), csvSheet: $('csvSheet'),
   ambient: $('cfgAmbient'), toastChk: $('cfgToast'), mini: $('btnMini'),
   reportBtn: $('btnReport'), reportHint: $('reportHint'), reportNote: $('reportNote'),
 }
@@ -598,6 +599,11 @@ async function exportXlsxTo(btn, url, label) {
 }
 
 el.monthBtn.onclick = () => exportXlsxTo(el.monthBtn, '/api/export?format=xlsx&scope=month', '月报')
+
+// CSV/TSV：纯 JS 出口，**不需要 Python** —— 所以即使 xlsx 按钮是灰的，这两个也能用。
+// 上面那条提示（reportNote）说的是 xlsx 能力，别让它吓退用户：CSV 不受影响。
+el.csvBtn.onclick = () => exportXlsxTo(el.csvBtn, `/api/export?format=csv&sheet=${encodeURIComponent(el.csvSheet.value)}`, 'CSV')
+el.tsvBtn.onclick = () => exportXlsxTo(el.tsvBtn, `/api/export?format=tsv&sheet=${encodeURIComponent(el.csvSheet.value)}`, 'TSV')
 
 // 区间默认填最近 7 天，省得每次都手填；用户改了就按用户的来
 el.rangeBtn.onclick = () => {

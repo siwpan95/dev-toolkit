@@ -125,6 +125,18 @@
       <button class="btn small" id="btnApplyXlsx" hidden>确认导入</button>
     </div>
     <div class="row io">
+      <label class="hint" for="csvSheet">CSV/TSV</label>
+      <select id="csvSheet">
+        <option value="会话">会话</option>
+        <option value="每日">每日</option>
+        <option value="任务">任务</option>
+        <option value="概览">概览</option>
+        <option value="计划外事件">计划外事件</option>
+      </select>
+      <button class="btn small" id="btnCsv">导出 CSV</button>
+      <button class="btn small" id="btnTsv">导出 TSV</button>
+    </div>
+    <div class="row io">
       <label class="hint" for="rangeFrom">自定义区间</label>
       <input type="date" id="rangeFrom">
       <span class="hint">~</span>
