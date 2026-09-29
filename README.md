@@ -21,7 +21,9 @@ npm install            # 只装 cordis / loader / logger-console（已装可跳�
 npm run pom            # 启动番茄钟，自动打开 http://127.0.0.1:5173/
 npm run smoke          # 冒烟测试（内核 + 番茄钟端到端，零外部依赖）
 npm run smoke:ui       # 真实浏览器界面验收（用系统 Edge/Chrome + CDP，零新增依赖；没浏览器自动跳过）
-npm run verify         # 上面两个一起跑
+npm run check:xlsx     # 跨实现验收：用 LibreOffice 打开导出的 xlsx 核对图表/隐藏表/真日期（没装则跳过）
+npm run verify         # 冒烟 + 界面验收
+npm run verify:full    # 再加 LibreOffice 验收（Node / 浏览器 / LibreOffice 三重实现）
 npm run bench:export   # 导出基线：3000 条会话的耗时/内存实测
 ```
 

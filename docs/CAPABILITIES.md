@@ -198,7 +198,9 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 |---|---|
 | `npm run smoke` | 冒烟：`src/_smoke.mjs`（内核）+ `src/_smoke_pom.mjs`（番茄钟与表格能力端到端） |
 | `npm run smoke:ui` | **真实浏览器**界面验收（`tools/ui-smoke.mjs`）：系统 Edge/Chrome + CDP，零新增依赖；没浏览器则跳过 |
+| `npm run check:xlsx` | **跨实现**验收（`tools/check-xlsx-lo.mjs` + `lo-check.py`）：用 LibreOffice（headless + UNO）打开导出的 xlsx，核对表/图表/隐藏表/真日期，并做"LO 重存 → openpyxl 读回"的往返；找不到 LibreOffice 自动跳过。可用 `POMODMER_SOFFICE=<soffice 路径>` 指定安装位置，`--file x.xlsx` 验指定文件 |
 | `npm run verify` | `smoke` + `smoke:ui` 一起跑 |
+| `npm run verify:full` | 再加上 `check:xlsx`（三重实现：Node/浏览器/LibreOffice） |
 | `npm run bench:export [-- --sessions 3000 --days 180]` | 导出基线：造 N 条会话 → 报耗时/文件大小/RSS → 同 TZ 往返必须 0 新增 |
 | `npm run gen -- --json x.json --out o.xlsx --sheet Data --header` | 通用 JSON → xlsx（数组的数组或对象数组自动取表头） |
 | `npm run demo` | 端到端演示：扫描 Cordis 包清单生成 xlsx 并读回校验 |
@@ -231,6 +233,8 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
   均已并入它的 `npm test`：前者用"会按需装死的假 worker"验超时/重启/崩溃自愈/冷启动宽限，
   后者**另起进程**用 openpyxl 打开落盘文件核对图表数量/类型/数据引用/分类轴/锚点。
 - `npm run smoke:ui` → 真实浏览器界面验收 **16 条**（详见 §11 第 9 条；含月报/区间/CSV/TSV 按钮）。
+- `npm run check:xlsx` → LibreOffice 跨实现验收 **10 条**（详见 §11 第 7b 条）：另一个实现能打开、
+  认得出图表与隐藏表、日期是真日期，且 LO 重存后图表与隐藏属性仍在。找不到 LibreOffice 时跳过。
 - `npm run bench:export` → 导出耗时/内存基线（实测：3000 条会话 429ms / 107KB / RSS +11MB）。
 - 权威源 `cordis-table-app`：`npm test`（内核冒烟 + 地图演示 + 程序化生成 + DonJon 互通往返 600 格比对）。
 - 数据落 `os.tmpdir()`、端口由系统分配，冒烟不污染真实 `data/store.json`、不抢端口。
@@ -248,7 +252,7 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 | 5 | 回灌只认本应用导出的表头名 | 外来自定义表头需先改列名（或后续加列映射配置） |
 | 6 | 回灌**不做删除** | Excel 里删掉的行不会从库里消失（有意为之，避免误删历史）；要清空请用 JSON 替换式导入 |
 | 7 | 回灌的 `plannedMs` 用 `actualMs` 兜底 | xlsx 没有"计划时长"列，故导入的会话"实际/计划"恒为 1:1 |
-| 7b | 报表里的图表是 openpyxl 写的标准 chart XML | 已验证：文件能被 openpyxl 正常加载、图表数量/类型/系列/数据引用/分类轴/锚点全部核对（权威源 13 条 + 冒烟 11m 4 条）。**未验证**：在 Excel/WPS 里打开是否弹"修复"提示 —— 本机没有这两个软件，需要人工点一次确认 |
+| 7b | 报表里的图表是 openpyxl 写的标准 chart XML | **已验证到"另一个实现也认"**：`npm run check:xlsx` 用 **LibreOffice**（headless + UNO）打开我们导出的 xlsx —— 它独立报出 8 张表、图表 2 个、`_meta`/`_epochs` 为隐藏、日期是真日期（读出 Excel 序列号而非文本）；并用 **LibreOffice 自己的 xlsx 过滤器重存**后再用 openpyxl 读回，图表与隐藏属性都还在（说明不依赖 openpyxl 私有写法）。还能顺带导出一份 PDF 供肉眼确认图表渲染。**仍未验证**：Excel / WPS 打开是否弹修复提示 —— 本机没有这两个软件 |
 | 8 | 数据是单文件 JSON，无多实例锁 | 同时运行两个宿主指向同一 `data/store.json` 会互相覆盖 |
 | 9 | ~~无浏览器端点击级自动化测试~~ **已补（可选跑）** | `npm run smoke:ui` 用系统 Edge/Chrome + CDP（Node 22 内置 WebSocket，**零新增依赖**）驱动真实页面，11 条断言：首屏渲染、点「开始」后文案与倒计时都在动、按钮可用性与服务端探测一致、任务添加链路、CDP 直接塞 xlsx 走完回灌预览+确认、全程无 JS 异常。找不到浏览器时自动跳过 |
 

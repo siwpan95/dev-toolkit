@@ -15,7 +15,9 @@
     "electron": "node electron/start.mjs",
     "smoke:ui": "node tools/ui-smoke.mjs",
     "bench:export": "node tools/bench-export.mjs",
-    "verify": "node src/_smoke.mjs && node src/_smoke_pom.mjs && node tools/ui-smoke.mjs"
+    "verify": "node src/_smoke.mjs && node src/_smoke_pom.mjs && node tools/ui-smoke.mjs",
+    "check:xlsx": "node tools/check-xlsx-lo.mjs",
+    "verify:full": "node src/_smoke.mjs && node src/_smoke_pom.mjs && node tools/ui-smoke.mjs && node tools/check-xlsx-lo.mjs"
   },
   "keywords": [
     "pomodoro",

@@ -664,6 +664,32 @@ Node 22 自带全局 `WebSocket`，浏览器自带 CDP，用系统 Edge/Chrome �
 图表以标准 chart XML 落盘（数量/类型/系列/引用/锚点全部核对）。
 真机打开是否弹修复提示，需要你在 Excel/WPS 里点一下确认。
 
+### 2026-09-29 · P8 补验：让 LibreOffice 来当"另一个实现"（用户提问促成）
+
+**起因**：P8 记录里我如实写过"图表在 Excel/WPS 打开无警告 无法验证（本机没有这两个软件）"。
+用户问：本机的 `F:\Libre`（LibreOffice）能不能做程序化验证？
+
+**能，而且比预想更强** —— LibreOffice 自带 **UNO**（`F:\Libre\program\python.exe -c "import uno"` 直接可用），
+于是可以驱动它**真的打开**我们的 xlsx，而不是听 openpyxl 自述：
+
+| 验证点 | LibreOffice 的独立结论 |
+|---|---|
+| 打开 | 无异常；8 张表全部读到（月报：概览/每日/会话/任务/计划外事件/对比 + `_meta`/`_epochs`） |
+| 图表 | 「每日」= **2 个图表**（LO 自己的图表解析器读懂 openpyxl 写的 chart XML） |
+| 隐藏表 | `_meta` / `_epochs` 报 `IsVisible=false`（隐藏属性被独立确认，不是 openpyxl 说了算） |
+| 真日期 | 「会话」开始列读出**数值序列号** `46283.86…`，证明是 Excel 原生日期而不是文本 |
+| 跨实现往返 | 用 **LibreOffice 自己的 xlsx 导出过滤器**重存 → openpyxl 读回：图表仍是 2 个、隐藏表仍隐藏 |
+| 渲染旁证 | 额外导出 PDF（默认落在 TEMP），供肉眼确认图表画出来了 |
+
+**交付**：`tools/lo-check.py`（UNO 探针，结果写 UTF-8 JSON 文件而不是打印 —— 避开 Windows 控制台编码）
++ `tools/check-xlsx-lo.mjs`（Node 包装：找 LibreOffice → 起 headless + UNO socket → 跑探针 → 断言 → 关干净）；
+`npm run check:xlsx` 与 `npm run verify:full`。**代码放 `tools/`，不往项目根目录堆**；
+LibreOffice 位置自发现（`POMODDER_SOFFICE` → PATH → 常见目录 → 逐个就绪盘符探测），所以能找到 `F:\Libre`
+而不写死 F 盘。没装 LibreOffice 的机器自动跳过（退出码 0）。
+
+**一个自我纠正**：我最初把 `doc.isModified` 当成"文件需要修复"的判据并写了断言，实测恒为 true ——
+LibreOffice 会因良性原因置位，这个信号不可靠。已降级为信息行，改用它自己重存一遍做跨实现往返（强得多）。
+
 ### 后续优先级（P1–P4 全部完成的收口表）
 
 > 本表的 P1–P4 指"表格能力专项"的编号，与 README 路线图的 P0–P3 无关；**当前计划见 §9（P5 → P6 → P7 → P8）**。
