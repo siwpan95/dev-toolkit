@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,7 +11,10 @@
 <main class="app">
   <header class="top">
     <h1>Pomodmer</h1>
-    <span class="badge" id="phaseBadge">待开始</span>
+    <div class="top-right">
+      <span class="badge" id="phaseBadge">待开始</span>
+      <button class="btn tiny" id="btnTheme" title="切换亮色/暗色">暗色</button>
+    </div>
   </header>
 
   <section class="dial">
@@ -25,6 +28,8 @@
     </div>
   </section>
 
+  <p class="cur-task">当前任务：<span id="curTask">未选择</span></p>
+
   <section class="controls">
     <button class="btn primary" id="btnToggle">开始</button>
     <button class="btn" id="btnReset">重置</button>
@@ -32,11 +37,49 @@
     <button class="btn danger" id="btnVoid">作废</button>
   </section>
 
-  <section class="stats" id="stats">
+  <section class="stats">
     <div><span class="num" id="stDone">0</span><span class="lbl">今日完成</span></div>
     <div><span class="num" id="stMin">0</span><span class="lbl">专注分钟</span></div>
     <div><span class="num" id="stInt">0</span><span class="lbl">中断</span></div>
+    <div><span class="num" id="stStreak">0</span><span class="lbl">连续天数</span></div>
   </section>
+
+  <details class="panel" open>
+    <summary>任务清单</summary>
+    <div class="row">
+      <input type="text" id="taskTitle" placeholder="要专注做的事…" maxlength="80">
+      <input type="number" id="taskEst" min="1" max="20" step="1" value="1" title="预估番茄数">
+      <button class="btn small" id="btnAddTask">添加</button>
+    </div>
+    <ul class="task-list" id="taskList"></ul>
+    <p class="empty" id="taskEmpty">还没有任务。添加一个，番茄完成后会自动记到它头上。</p>
+  </details>
+
+  <details class="panel">
+    <summary>统计</summary>
+    <div class="chart">
+      <div class="chart-title">最近 7 天（番茄数）</div>
+      <svg id="bars" viewBox="0 0 320 90" class="bars" aria-label="最近 7 天番茄数柱状图"></svg>
+    </div>
+    <div class="chart">
+      <div class="chart-title">专注热力图（最近 12 周）</div>
+      <svg id="heat" viewBox="0 0 320 80" class="heat" aria-label="专注热力图"></svg>
+    </div>
+    <div class="chart-title">任务番茄数（实际 / 预估）</div>
+    <ul class="bar-list" id="taskBars"></ul>
+  </details>
+
+  <details class="panel">
+    <summary>中断记录（计划外事件）</summary>
+    <p class="hint-block">番茄钟进行中想起别的事？先记下来，番茄照跑 —— 这是番茄工作法处理非紧急中断的标准做法。</p>
+    <div class="row">
+      <input type="text" id="intNote" placeholder="什么事打断了你…" maxlength="80">
+      <button class="btn small" id="btnIntIn">内部中断</button>
+      <button class="btn small" id="btnIntOut">外部中断</button>
+    </div>
+    <ul class="event-list" id="unplannedList"></ul>
+    <p class="empty" id="unplannedEmpty">暂无记录。</p>
+  </details>
 
   <details class="panel">
     <summary>设置</summary>
@@ -55,6 +98,12 @@
     </div>
     <button class="btn small" id="btnSave">保存设置</button>
     <span class="hint" id="saveHint"></span>
+    <div class="row io">
+      <button class="btn small" id="btnExport">导出数据 JSON</button>
+      <button class="btn small" id="btnImport">导入数据 JSON</button>
+      <input type="file" id="fileImport" accept="application/json,.json" hidden>
+    </div>
+    <span class="hint" id="ioHint"></span>
   </details>
 
   <p class="foot">

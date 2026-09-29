@@ -21,9 +21,11 @@ export function defaultData() {
       sound: true,              // 提示音
       tick: false,              // 每秒滴答声
       notify: true,             // 桌面通知
+      theme: 'light',           // light | dark
     },
     tasks: [],                  // { id, title, estimate, spent, done, createdAt }
     sessions: [],               // { id, type, taskId, plannedMs, startAt, endAt, actualMs, completed, interrupts, reason }
+    unplanned: [],              // 番茄工作法「计划外事件」：{ id, kind: internal|external, note, at, phase, taskId }
     runtime: {
       phase: 'idle',            // idle | focus | short | long
       running: false,
@@ -104,6 +106,33 @@ export class StoreService extends Service {
   get runtime() { return this.data.runtime }
   get tasks() { return this.data.tasks }
   get sessions() { return this.data.sessions }
+  get unplanned() { return this.data.unplanned }
+
+  // ---- 导出 / 导入（P1）----
+  snapshot() {
+    return JSON.parse(JSON.stringify(this.data))
+  }
+
+  replace(next) {
+    if (!next || typeof next !== 'object') throw new Error('导入数据不是对象')
+    if (next.settings && typeof next.settings !== 'object') throw new Error('settings 字段非法')
+    for (const k of ['tasks', 'sessions', 'unplanned']) {
+      if (next[k] !== undefined && !Array.isArray(next[k])) throw new Error(k + ' 必须是数组')
+    }
+    const base = defaultData()
+    const merged = {
+      version: base.version,
+      settings: this._merge(base.settings, next.settings || {}),
+      tasks: Array.isArray(next.tasks) ? next.tasks : [],
+      sessions: Array.isArray(next.sessions) ? next.sessions : [],
+      unplanned: Array.isArray(next.unplanned) ? next.unplanned : [],
+      runtime: this._merge(base.runtime, next.runtime || {}),
+    }
+    merged.runtime.running = false          // 导入后一律停在暂停态，不静默续跑
+    this.data = merged
+    this.flush()
+    return this.data
+  }
 
   // 合并：深合并普通对象，数组以新值为准（旧档缺字段用默认补齐）
   _merge(base, patch) {

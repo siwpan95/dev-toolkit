@@ -293,6 +293,25 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 
 **待办**：P0 提交（需授权）→ P1。
 
+### 2026-09-29 08:0x · P1 完成（实测通过）
+
+| 交付 | 说明 |
+|---|---|
+| 任务清单 + 番茄归属 | UI 增删改选，番茄完成后 `spent` 自增，与 `estimate` 对比 |
+| 统计面板 | 今日 / 连续天数 / 最近 7 天柱状图 / 12 周热力图 / 每任务进度条（纯 SVG 手绘，不引图表库） |
+| 中断记录 | 番茄工作法「计划外事件」：内部/外部 + 备注 + 时间，可删 |
+| 亮/暗主题 | 存 `settings.theme`，CSS 变量 `[data-theme]` 切换 |
+| 快捷键 | 空格 开始/暂停（输入框/按钮聚焦时不触发） |
+| 导入导出 | `/api/export`（附件）/ `/api/import`（校验失败 400，导入后停在暂停态） |
+| 后端扩展 | `timer.stats()` / `recordInterrupt()` / `listUnplanned()` / `reload()`；`store.snapshot()` / `replace()` |
+
+**冒烟**：`node src/_smoke_pom.mjs` → **59 项 ALL PASS**（EXIT=0），新增 9b（任务归属）/ 9c（中断 CRUD）/
+9d（统计形状 + streak）/ 9e（导出导入 + 非法导入 400）/ 9f（主题归一化）。
+
+**修掉的两个真 bug**：
+1. 路由顺序 —— `/api/tasks/:id` 前缀分支吃掉了 `/api/tasks/current`（表现为"选当前任务无效"）。
+2. `StoreService` 漏了 `get unplanned()` —— `ctx.store.unplanned` 为 undefined，列表接口 500。
+
 ## 9. 附：本轮调研来源
 
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）

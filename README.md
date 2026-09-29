@@ -61,17 +61,33 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
    `performance.now()`（单调钟）只用于调度耗时观测。
 4. **前端不推进时间**：SSE 每秒下发 `endAt` 与服务端 `now`，浏览器按本地插值渲染。
 
+## 功能（P0 + P1）
+
+**P0**：番茄钟核心 —— 专注/短休/长休自动流转、开始/暂停/继续/重置/跳过/作废、
+可配置时长与长休间隔、自动开休息、提示音与滴答声、桌面通知、亮/暗主题。
+
+**P1**：任务清单（番茄归属，实际/预估对比）、统计面板（今日/连续天数/最近 7 天柱状图/
+12 周热力图/每任务进度条）、中断记录（内部/外部 + 计划外事件列表）、数据导出/导入 JSON。
+
 ## HTTP API
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/state` | 全量快照（settings / tasks / runtime / 今日统计） |
-| GET | `/api/events` | SSE：`hello` 快照 + 每秒 `tick` + `phase` / `session` / `settings` 事件 |
+| GET | `/api/events` | SSE：`hello` 快照 + 每秒 `tick` + `phase` / `session` / `settings` / `interrupt` / `imported` 事件 |
 | POST | `/api/timer/start` `pause` `resume` `toggle` `reset` `skip` `void` | 控制 |
-| PATCH | `/api/settings` | 改时长与开关（`focusMs` 等，非法值被拒） |
+| PATCH | `/api/settings` | 改时长与开关（`focusMs` / `theme` 等，非法值被拒） |
 | GET / POST | `/api/tasks` | 任务列表 / 新增 |
 | PATCH / DELETE | `/api/tasks/:id` | 改任务 / 删任务 |
+| PATCH | `/api/tasks/current` | 设当前任务（番茄完成后自动计到它头上） |
 | GET | `/api/sessions?limit=100` | 历史会话 |
+| GET | `/api/stats?days=7&weeks=12` | 统计：today / streak / recent / heat / byTask / total |
+| GET / POST | `/api/unplanned` | 计划外事件列表 / 记录（`kind`: internal\|external） |
+| DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
+| GET | `/api/export` | 导出全部数据（JSON 附件） |
+| POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
+
+> 路由顺序坑：`/api/tasks/current` 必须排在 `/api/tasks/:id` 之前，否则会被当成 `id='current'` 的任务。
 
 ## 数据
 
@@ -82,6 +98,7 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
   "settings": { "focusMs": 1500000, "shortMs": 300000, "longMs": 900000, "longEvery": 4, ... },
   "tasks":    [ { "id", "title", "estimate", "spent", "done", "createdAt" } ],
   "sessions": [ { "id", "type", "taskId", "plannedMs", "startAt", "endAt", "actualMs", "completed", "interrupts", "reason" } ],
+  "unplanned":[ { "id", "kind": "internal|external", "note", "at", "phase", "taskId" } ],
   "runtime":  { "phase", "running", "endAt", "remainingMs", "startedAt", "plannedMs", "round", "currentTaskId", "interrupts" }
 }
 ```
@@ -121,8 +138,8 @@ pomodmer/
 
 ## 路线图
 
-- **P0（已完成）**：Cordis 宿主 + store/timer/http 三插件 + 本地 Web UI + 端到端冒烟。
-- **P1**：任务清单铺到 UI、桌面通知、统计与热力图、中断记录、主题与快捷键。
+- **P0（已完成，tag v2.0.0）**：Cordis 宿主 + store/timer/http 三插件 + 本地 Web UI + 端到端冒烟。
+- **P1（已完成，tag v2.1.0）**：任务清单 + 番茄归属、统计与热力图、中断记录、亮/暗主题、快捷键、导入导出。
 - **P2**：周报 xlsx 导出（复用 ctx.table）、白噪音、迷你窗、单文件分发。
 - **P3（可选）**：Electron 桌面壳（托盘 / 置顶 / 全局快捷键），仅 devDependencies，失败不影响主功能。
 

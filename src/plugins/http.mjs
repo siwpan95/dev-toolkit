@@ -48,10 +48,12 @@ export class HttpService extends Service {
     const onPhase = (p) => this._broadcast('phase', p)
     const onSession = (s) => this._broadcast('session', s)
     const onSettings = (s) => this._broadcast('settings', s)
+    const onInterrupt = (i) => this._broadcast('interrupt', i)
     this.ctx.on('pomodoro/tick', onTick)
     this.ctx.on('pomodoro/phase', onPhase)
     this.ctx.on('pomodoro/session', onSession)
     this.ctx.on('pomodoro/settings', onSettings)
+    this.ctx.on('pomodoro/interrupt', onInterrupt)
 
     return new Promise((resolveReady, rejectReady) => {
       this.server.on('error', (e) => {
@@ -132,6 +134,12 @@ export class HttpService extends Service {
       }
     }
 
+    // 注意：/api/tasks/current 必须先于 /api/tasks/:id 匹配，否则会被当成 id='current' 的任务
+    if (path === '/api/tasks/current' && req.method === 'PATCH') {
+      const body = await this._body(req)
+      return json(200, timer.setCurrentTask(body && body.taskId))
+    }
+
     if (path.startsWith('/api/tasks/')) {
       const id = decodeURIComponent(path.slice('/api/tasks/'.length))
       if (req.method === 'PATCH') {
@@ -147,6 +155,49 @@ export class HttpService extends Service {
     if (path === '/api/sessions' && req.method === 'GET') {
       const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 1000)
       return json(200, { sessions: store.sessions.slice(-limit) })
+    }
+
+    // ---- P1：统计 / 中断 / 导入导出 ----
+    if (path === '/api/stats' && req.method === 'GET') {
+      const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 7, 1), 60)
+      const heatWeeks = Math.min(Math.max(Number(url.searchParams.get('weeks')) || 12, 1), 52)
+      return json(200, timer.stats({ days, heatWeeks }))
+    }
+
+    if (path === '/api/unplanned') {
+      if (req.method === 'GET') return json(200, { unplanned: timer.listUnplanned(50) })
+      if (req.method === 'POST') {
+        const body = await this._body(req)
+        return json(200, { item: timer.recordInterrupt(body && body.kind, body && body.note) })
+      }
+    }
+
+    if (path.startsWith('/api/unplanned/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(path.slice('/api/unplanned/'.length))
+      return timer.deleteUnplanned(id) ? json(200, { ok: true }) : json(404, { error: '记录不存在' })
+    }
+
+    if (path === '/api/export' && req.method === 'GET') {
+      const body = JSON.stringify({ app: 'pomodmer', exportedAt: Date.now(), ...store.snapshot() }, null, 2)
+      const name = 'pomodmer-' + new Date().toISOString().slice(0, 10) + '.json'
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="' + name + '"',
+        'Content-Length': Buffer.byteLength(body),
+      })
+      return res.end(body)
+    }
+
+    if (path === '/api/import' && req.method === 'POST') {
+      const body = await this._body(req)
+      try {
+        store.replace(body && body.data ? body.data : body)
+        const state = timer.reload()
+        this._broadcast('imported', { settings: store.settings })
+        return json(200, { ok: true, runtime: state, settings: store.settings })
+      } catch (e) {
+        return json(400, { error: '导入失败: ' + e.message })
+      }
     }
 
     return json(404, { error: '未找到: ' + path })

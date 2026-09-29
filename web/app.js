@@ -7,14 +7,24 @@ const CIRC = 2 * Math.PI * 120
 const el = {
   time: $('time'), sub: $('roundInfo'), badge: $('phaseBadge'), ring: $('ringFg'),
   toggle: $('btnToggle'), reset: $('btnReset'), skip: $('btnSkip'), void: $('btnVoid'),
-  done: $('stDone'), min: $('stMin'), int: $('stInt'),
+  done: $('stDone'), min: $('stMin'), int: $('stInt'), streak: $('stStreak'),
+  curTask: $('curTask'), theme: $('btnTheme'),
   focus: $('cfgFocus'), short: $('cfgShort'), long: $('cfgLong'), every: $('cfgEvery'),
   autoBreak: $('cfgAutoBreak'), autoFocus: $('cfgAutoFocus'), sound: $('cfgSound'),
   tick: $('cfgTick'), notify: $('cfgNotify'), save: $('btnSave'), hint: $('saveHint'),
+  taskTitle: $('taskTitle'), taskEst: $('taskEst'), addTask: $('btnAddTask'),
+  taskList: $('taskList'), taskEmpty: $('taskEmpty'), taskBars: $('taskBars'),
+  bars: $('bars'), heat: $('heat'),
+  intNote: $('intNote'), intIn: $('btnIntIn'), intOut: $('btnIntOut'),
+  unplannedList: $('unplannedList'), unplannedEmpty: $('unplannedEmpty'),
+  exportBtn: $('btnExport'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
 }
 
-let state = null          // 最近一次服务端快照
+let state = null          // 最近一次服务端快照（runtime）
 let settings = null
+let tasks = []
+let stats = null
+let unplanned = []
 let offset = 0            // 服务端时钟 - 本地时钟
 let audioCtx = null
 let audioReady = false
@@ -69,7 +79,7 @@ function notify(title, body) {
   }
 }
 
-// ---------- 渲染 ----------
+// ---------- 计时渲染 ----------
 function fmt(ms) {
   const total = Math.max(0, Math.ceil(ms / 1000))
   const m = Math.floor(total / 60)
@@ -101,6 +111,7 @@ function render() {
   el.done.textContent = t.completed || 0
   el.min.textContent = Math.round((t.focusMs || 0) / 60000)
   el.int.textContent = t.interrupts || 0
+  el.streak.textContent = stats ? stats.streak : 0
   document.title = `${fmt(remain)} · ${el.badge.textContent} · Pomodmer`
 }
 
@@ -115,11 +126,136 @@ setInterval(() => {
   }
 }, 200)
 
+// ---------- 任务清单 ----------
+function currentTask() {
+  return tasks.find((t) => t.id === (state && state.currentTaskId)) || null
+}
+
+function renderTasks() {
+  const cur = currentTask()
+  el.curTask.textContent = cur ? `${cur.title}（${cur.spent || 0}/${cur.estimate || 1}）` : '未选择'
+  el.taskEmpty.style.display = tasks.length ? 'none' : ''
+  el.taskList.innerHTML = ''
+  for (const t of tasks) {
+    const li = document.createElement('li')
+    li.className = 'task-item' + (t.id === (state && state.currentTaskId) ? ' active' : '') + (t.done ? ' done' : '')
+    const name = document.createElement('span')
+    name.className = 't-title'
+    name.textContent = t.title
+    const cnt = document.createElement('span')
+    cnt.className = 't-count'
+    cnt.textContent = `${t.spent || 0}/${t.estimate || 1}`
+    const pick = document.createElement('button')
+    pick.className = 'btn tiny'
+    pick.textContent = t.id === (state && state.currentTaskId) ? '当前' : '选择'
+    pick.onclick = () => patch('/api/tasks/current', { taskId: t.id }).then(refreshAll)
+    const done = document.createElement('button')
+    done.className = 'btn tiny'
+    done.textContent = t.done ? '重开' : '完成'
+    done.onclick = () => patch('/api/tasks/' + t.id, { done: !t.done }).then(refreshAll)
+    const del = document.createElement('button')
+    del.className = 'btn tiny danger'
+    del.textContent = '删'
+    del.onclick = () => del_(t.id)
+    li.append(name, cnt, pick, done, del)
+    el.taskList.appendChild(li)
+  }
+}
+
+async function del_(id) {
+  await fetch('/api/tasks/' + id, { method: 'DELETE' })
+  refreshAll()
+}
+
+async function addTask() {
+  const title = el.taskTitle.value.trim()
+  if (!title) return
+  await fetch('/api/tasks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, estimate: Number(el.taskEst.value) || 1 }),
+  })
+  el.taskTitle.value = ''
+  refreshAll()
+}
+
+// ---------- 图表（纯 SVG 手绘，不引图表库）----------
+function renderCharts() {
+  if (!stats) return
+  const max = Math.max(1, ...stats.recent.map((d) => d.completed))
+  const bw = 320 / stats.recent.length
+  let bars = ''
+  stats.recent.forEach((d, i) => {
+    const h = Math.max(2, (d.completed / max) * 62)
+    const x = i * bw + bw * 0.22
+    const w = bw * 0.56
+    bars += `<rect x="${x.toFixed(1)}" y="${(70 - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="#e24b4a" opacity="${d.completed ? 0.9 : 0.25}"></rect>`
+    bars += `<text x="${(i * bw + bw / 2).toFixed(1)}" y="84" font-size="9" text-anchor="middle" fill="var(--muted)">${d.date.slice(5)}</text>`
+    if (d.completed) bars += `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${(70 - h - 3).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--muted)">${d.completed}</text>`
+  })
+  el.bars.innerHTML = bars
+
+  const cell = 12
+  const gap = 2
+  const cols = Math.ceil(stats.heat.length / 7)
+  let heat = ''
+  stats.heat.forEach((d, i) => {
+    const col = Math.floor(i / 7)
+    const row = i % 7
+    const lv = Math.min(4, d.level)
+    const fill = ['var(--heat0)', 'var(--heat1)', 'var(--heat2)', 'var(--heat3)', 'var(--heat4)'][lv]
+    heat += `<rect x="${col * (cell + gap)}" y="${row * (cell + gap)}" width="${cell}" height="${cell}" rx="2" fill="${fill}"><title>${d.date}: ${d.level} 个番茄</title></rect>`
+  })
+  el.heat.setAttribute('viewBox', `0 0 ${cols * (cell + gap)} ${7 * (cell + gap)}`)
+  el.heat.innerHTML = heat
+
+  el.taskBars.innerHTML = stats.byTask.length
+    ? stats.byTask.map((t) => {
+      const pct = Math.min(100, Math.round(((t.spent || 0) / Math.max(1, t.estimate)) * 100))
+      return `<li><span class="bl-name">${escapeHtml(t.title)}</span>` +
+        `<span class="bl-bar"><i style="width:${pct}%"></i></span>` +
+        `<span class="bl-num">${t.spent || 0}/${t.estimate || 1}</span></li>`
+    }).join('')
+    : '<li class="empty">还没有任务</li>'
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+function renderUnplanned() {
+  el.unplannedEmpty.style.display = unplanned.length ? 'none' : ''
+  el.unplannedList.innerHTML = unplanned.map((u) => {
+    const when = new Date(u.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return `<li><span class="tag ${u.kind}">${u.kind === 'external' ? '外部' : '内部'}</span>` +
+      `<span class="ev-note">${escapeHtml(u.note || '（无备注）')}</span>` +
+      `<span class="ev-time">${when}</span>` +
+      `<button class="btn tiny" data-del="${u.id}">删</button></li>`
+  }).join('')
+  for (const b of el.unplannedList.querySelectorAll('button[data-del]')) {
+    b.onclick = async () => {
+      await fetch('/api/unplanned/' + b.dataset.del, { method: 'DELETE' })
+      loadUnplanned()
+    }
+  }
+}
+
+// ---------- 主题 ----------
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light'
+  el.theme.textContent = theme === 'dark' ? '亮色' : '暗色'
+}
+
 // ---------- 服务端通信 ----------
 function applyState(s) {
   offset = (s.now || Date.now()) - Date.now()
   state = s
   render()
+  renderTasks()
+}
+
+async function getJson(path) {
+  const r = await fetch(path)
+  return r.json()
 }
 
 async function post(path, body) {
@@ -133,12 +269,40 @@ async function post(path, body) {
   return data
 }
 
-async function loadState() {
-  const res = await fetch('/api/state')
+async function patch(path, body) {
+  const res = await fetch(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  })
   const data = await res.json()
+  if (data && data.now) applyState(data)
+  return data
+}
+
+async function loadState() {
+  const data = await getJson('/api/state')
   settings = data.settings
+  tasks = data.tasks || []
   applyState(data.runtime)
+  applyTheme(settings.theme)
   fillSettings()
+}
+
+async function loadStats() {
+  stats = await getJson('/api/stats?days=7&weeks=12')
+  renderCharts()
+  render()
+}
+
+async function loadUnplanned() {
+  const d = await getJson('/api/unplanned')
+  unplanned = d.unplanned || []
+  renderUnplanned()
+}
+
+function refreshAll() {
+  return Promise.all([loadState(), loadStats(), loadUnplanned()])
 }
 
 function fillSettings() {
@@ -159,8 +323,10 @@ function connect() {
   es.addEventListener('hello', (e) => { const d = JSON.parse(e.data); offset = d.now - Date.now(); state = d; render() })
   es.addEventListener('tick', (e) => applyState(JSON.parse(e.data)))
   es.addEventListener('phase', (e) => onPhase(JSON.parse(e.data)))
-  es.addEventListener('session', () => { /* P1：会话列表 */ })
-  es.addEventListener('settings', (e) => { settings = JSON.parse(e.data); fillSettings() })
+  es.addEventListener('session', () => { loadStats() })
+  es.addEventListener('settings', (e) => { settings = JSON.parse(e.data); fillSettings(); applyTheme(settings.theme) })
+  es.addEventListener('interrupt', () => { loadUnplanned(); loadStats() })
+  es.addEventListener('imported', () => { refreshAll() })
   es.onerror = () => { /* EventSource 自带重连（retry: 3000） */ }
 }
 
@@ -186,30 +352,71 @@ function ensureAudio() {
 
 el.toggle.onclick = async () => { ensureAudio(); await post('/api/timer/toggle') }
 el.reset.onclick = async () => { await post('/api/timer/reset') }
-el.skip.onclick = async () => { await post('/api/timer/skip') }
-el.void.onclick = async () => { await post('/api/timer/void', { reason: 'void' }) }
+el.skip.onclick = async () => { await post('/api/timer/skip'); loadStats() }
+el.void.onclick = async () => { await post('/api/timer/void', { reason: 'void' }); loadStats() }
+
+el.addTask.onclick = addTask
+el.taskTitle.onkeydown = (e) => { if (e.key === 'Enter') addTask() }
+
+el.intIn.onclick = () => recordInterrupt('internal')
+el.intOut.onclick = () => recordInterrupt('external')
+el.intNote.onkeydown = (e) => { if (e.key === 'Enter') recordInterrupt('internal') }
+
+async function recordInterrupt(kind) {
+  await post('/api/unplanned', { kind, note: el.intNote.value.trim() })
+  el.intNote.value = ''
+  loadUnplanned()
+  loadStats()
+}
+
+el.theme.onclick = async () => {
+  const next = (settings && settings.theme) === 'dark' ? 'light' : 'dark'
+  const d = await patch('/api/settings', { theme: next })
+  settings = d.settings
+  applyTheme(settings.theme)
+}
 
 el.save.onclick = async () => {
-  const res = await fetch('/api/settings', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      focusMs: Number(el.focus.value) * 60000,
-      shortMs: Number(el.short.value) * 60000,
-      longMs: Number(el.long.value) * 60000,
-      longEvery: Number(el.every.value),
-      autoStartBreak: el.autoBreak.checked,
-      autoStartFocus: el.autoFocus.checked,
-      sound: el.sound.checked,
-      tick: el.tick.checked,
-      notify: el.notify.checked,
-    }),
+  const d = await patch('/api/settings', {
+    focusMs: Number(el.focus.value) * 60000,
+    shortMs: Number(el.short.value) * 60000,
+    longMs: Number(el.long.value) * 60000,
+    longEvery: Number(el.every.value),
+    autoStartBreak: el.autoBreak.checked,
+    autoStartFocus: el.autoFocus.checked,
+    sound: el.sound.checked,
+    tick: el.tick.checked,
+    notify: el.notify.checked,
   })
-  const data = await res.json()
-  settings = data.settings
-  applyState(data.runtime)
+  settings = d.settings
+  applyState(d.runtime)
   el.hint.textContent = '已保存'
   setTimeout(() => { el.hint.textContent = '' }, 2000)
+}
+
+el.exportBtn.onclick = () => { window.location.href = '/api/export' }
+
+el.importBtn.onclick = () => el.fileImport.click()
+el.fileImport.onchange = async () => {
+  const file = el.fileImport.files && el.fileImport.files[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    const res = await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data }),
+    })
+    const out = await res.json()
+    el.ioHint.textContent = res.ok ? '导入成功' : ('导入失败: ' + (out.error || res.status))
+    el.ioHint.className = res.ok ? 'hint' : 'hint err'
+    refreshAll()
+  } catch (e) {
+    el.ioHint.textContent = '导入失败: ' + e.message
+    el.ioHint.className = 'hint err'
+  }
+  el.fileImport.value = ''
 }
 
 document.addEventListener('keydown', (e) => {
@@ -223,7 +430,7 @@ document.addEventListener('keydown', (e) => {
 
 // 回到前台立刻校正（后台标签页会被浏览器节流，回来必须重算）
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) loadState()
+  if (!document.hidden) refreshAll()
 })
 
-loadState().then(connect)
+refreshAll().then(connect)

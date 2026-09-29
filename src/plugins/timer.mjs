@@ -163,7 +163,7 @@ export class TimerService extends Service {
   }
 
   setSettings(patch = {}) {
-    const allow = ['focusMs', 'shortMs', 'longMs', 'longEvery', 'autoStartBreak', 'autoStartFocus', 'sound', 'tick', 'notify']
+    const allow = ['focusMs', 'shortMs', 'longMs', 'longEvery', 'autoStartBreak', 'autoStartFocus', 'sound', 'tick', 'notify', 'theme']
     this.store.update((d) => {
       for (const k of Object.keys(patch)) {
         if (!allow.includes(k)) continue
@@ -176,6 +176,8 @@ export class TimerService extends Service {
           const n = Number(v)
           if (!Number.isFinite(n) || n < 1) continue
           d.settings[k] = Math.round(n)
+        } else if (k === 'theme') {
+          d.settings[k] = v === 'dark' ? 'dark' : 'light'
         } else {
           d.settings[k] = !!v
         }
@@ -228,18 +230,122 @@ export class TimerService extends Service {
   }
 
   // ---------- 统计 ----------
+  _dayKey(ts) {
+    const d = new Date(ts)
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return d.getFullYear() + '-' + m + '-' + day
+  }
+
   today() {
     const now = new Date()
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
     const list = this.store.sessions.filter((s) => (s.startAt || 0) >= dayStart)
     const focus = list.filter((s) => s.type === 'focus')
     return {
-      date: new Date(dayStart).toISOString().slice(0, 10),
+      date: this._dayKey(dayStart),
       completed: focus.filter((s) => s.completed).length,
       abandoned: focus.filter((s) => !s.completed).length,
       focusMs: focus.reduce((a, s) => a + (s.actualMs || 0), 0),
       interrupts: list.reduce((a, s) => a + (s.interrupts || 0), 0),
     }
+  }
+
+  // 统计面板：今日 / 连续天数 / 最近 N 天 / 每任务番茄数（全部由 sessions 派生，不单独存）
+  stats({ days = 7, heatWeeks = 12 } = {}) {
+    const byDay = new Map()
+    for (const s of this.store.sessions) {
+      if (s.type !== 'focus') continue
+      const key = this._dayKey(s.startAt || 0)
+      if (!byDay.has(key)) byDay.set(key, { date: key, completed: 0, abandoned: 0, focusMs: 0 })
+      const d = byDay.get(key)
+      if (s.completed) { d.completed++; d.focusMs += s.actualMs || 0 }
+      else d.abandoned++
+    }
+    const list = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date))
+
+    // 连续天数：今天还没开张就从昨天往前算，避免白天一上来就"断连"
+    let streak = 0
+    const cursor = new Date()
+    cursor.setHours(0, 0, 0, 0)
+    const todayRec = byDay.get(this._dayKey(Date.now()))
+    if (!todayRec || !todayRec.completed) cursor.setDate(cursor.getDate() - 1)
+    for (;;) {
+      const rec = byDay.get(this._dayKey(cursor.getTime()))
+      if (rec && rec.completed > 0) { streak++; cursor.setDate(cursor.getDate() - 1) } else break
+    }
+
+    // 最近 N 天（补齐空天，柱状图才能连续）
+    const recent = []
+    const base = new Date()
+    base.setHours(0, 0, 0, 0)
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(base.getTime() - i * 86400000)
+      const k = this._dayKey(dt.getTime())
+      recent.push(byDay.get(k) || { date: k, completed: 0, abandoned: 0, focusMs: 0 })
+    }
+
+    // 热力图：最近 heatWeeks 周，按周对齐（周日为一周起点）
+    const heat = []
+    const end = new Date(base.getTime())
+    end.setDate(end.getDate() + (6 - end.getDay()))   // 补到本周六
+    const cells = heatWeeks * 7
+    for (let i = cells - 1; i >= 0; i--) {
+      const dt = new Date(end.getTime() - i * 86400000)
+      const k = this._dayKey(dt.getTime())
+      const rec = byDay.get(k)
+      heat.push({ date: k, level: rec ? rec.completed : 0 })
+    }
+
+    const byTask = this.store.tasks.map((t) => ({
+      id: t.id, title: t.title, estimate: t.estimate, spent: t.spent || 0, done: !!t.done,
+    }))
+
+    const total = {
+      completed: list.reduce((a, d) => a + d.completed, 0),
+      focusMs: list.reduce((a, d) => a + d.focusMs, 0),
+      days: list.length,
+    }
+    return { today: this.today(), streak, recent, heat, byTask, total }
+  }
+
+  // ---------- 中断 / 计划外事件（番茄工作法：非紧急中断先记下来，番茄继续）----------
+  recordInterrupt(kind = 'internal', note = '') {
+    const item = {
+      id: randomUUID(),
+      kind: kind === 'external' ? 'external' : 'internal',
+      note: String(note || '').slice(0, 200),
+      at: Date.now(),
+      phase: this.store.runtime.phase,
+      taskId: this.store.runtime.currentTaskId,
+    }
+    this.store.update((d) => {
+      d.unplanned.push(item)
+      d.runtime.interrupts = (d.runtime.interrupts || 0) + 1
+    })
+    this._emit('pomodoro/interrupt', item)
+    return item
+  }
+
+  listUnplanned(limit = 50) {
+    return this.store.unplanned.slice(-limit).reverse()
+  }
+
+  deleteUnplanned(id) {
+    let ok = false
+    this.store.update((d) => {
+      const i = d.unplanned.findIndex((x) => x.id === id)
+      if (i >= 0) { d.unplanned.splice(i, 1); ok = true }
+    })
+    return ok
+  }
+
+  // 数据被整体替换（导入）后，重新按新 runtime 起调度
+  reload() {
+    this._clear()
+    this._lastTickAt = Date.now()
+    this._schedule()
+    return this.state()
   }
 
   // ---------- 内部：阶段推进 ----------

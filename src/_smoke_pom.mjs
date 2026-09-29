@@ -176,9 +176,71 @@ async function main() {
   })
   ok(!pausedSse.includes('event: tick'), '暂停期间不再推送 tick（状态静止，无事件可推）')
 
+  console.log('\n=== 9b. P1：任务归属（番茄记到当前任务头上）===')
+  const tk = (await json(req(base + '/api/tasks', 'POST', { title: '写 P1 代码', estimate: 3 }))).data.task
+  await json(req(base + '/api/tasks/current', 'PATCH', { taskId: tk.id }))
+  const stCur = (await json(get(base + '/api/state'))).data
+  ok(stCur.runtime.currentTaskId === tk.id, '设置当前任务生效', String(stCur.runtime.currentTaskId))
+  await json(req(base + '/api/timer/start', 'POST'))
+  await waitFor(base + '/api/state', (d) => d.runtime.phase !== 'focus', 12000)
+  const tkAfter = (await json(get(base + '/api/state'))).data.tasks.find((t) => t.id === tk.id)
+  ok(tkAfter && tkAfter.spent === 1, '番茄完成后任务 spent 自增 1（实际/预估 1/3）', tkAfter && String(tkAfter.spent))
+
+  console.log('\n=== 9c. P1：中断记录（计划外事件）===')
+  const it1 = (await json(req(base + '/api/unplanned', 'POST', { kind: 'external', note: '同事敲门' }))).data.item
+  ok(it1.kind === 'external' && it1.note === '同事敲门', '记录外部中断', JSON.stringify(it1))
+  const it2 = (await json(req(base + '/api/unplanned', 'POST', { kind: 'weird', note: '' }))).data.item
+  ok(it2.kind === 'internal', '非法 kind 归一化为 internal', it2.kind)
+  const ul = (await json(get(base + '/api/unplanned'))).data.unplanned
+  ok(ul.length === 2 && ul[0].id === it2.id, '列表按时间倒序返回 2 条', String(ul.length))
+  ok((await json(req(base + '/api/unplanned/' + it1.id, 'DELETE'))).status === 200, '删除中断记录成功')
+  ok((await json(req(base + '/api/unplanned/' + it1.id, 'DELETE'))).status === 404, '重复删除 -> 404')
+
+  console.log('\n=== 9d. P1：统计（今日/连续天数/最近 7 天/热力图/每任务）===')
+  const stt = (await json(get(base + '/api/stats?days=7&weeks=12'))).data
+  ok(Array.isArray(stt.recent) && stt.recent.length === 7, 'recent = 最近 7 天（补齐空天）', String(stt.recent && stt.recent.length))
+  ok(Array.isArray(stt.heat) && stt.heat.length === 84, 'heat = 12 周 × 7 天 = 84 格', String(stt.heat && stt.heat.length))
+  ok(typeof stt.streak === 'number', 'streak 为数字', String(stt.streak))
+  ok(Array.isArray(stt.byTask) && stt.byTask.some((t) => t.id === tk.id && t.spent === 1), 'byTask 含该任务且 spent=1')
+  ok(stt.today && typeof stt.today.completed === 'number', 'today 统计存在')
+
+  console.log('\n=== 9e. P1：导出 / 导入 ===')
+  const dayMs = 86400000
+  const mkSession = (offsetDays) => ({
+    id: 'x' + offsetDays, type: 'focus', taskId: null, plannedMs: 1500000,
+    startAt: Date.now() - offsetDays * dayMs, endAt: Date.now() - offsetDays * dayMs + 1500000,
+    actualMs: 1500000, completed: true, interrupts: 0, reason: null,
+  })
+  const imp = await json(req(base + '/api/import', 'POST', {
+    data: {
+      settings: { focusMs: 3000, shortMs: 2000, longMs: 2000, longEvery: 2 },
+      tasks: [], sessions: [mkSession(1), mkSession(2)], unplanned: [],
+    },
+  }))
+  ok(imp.status === 200, '导入成功')
+  ok(imp.data.runtime.running === false, '导入后一律停在暂停态（不静默续跑）')
+  const stt2 = (await json(get(base + '/api/stats?days=7&weeks=12'))).data
+  ok(stt2.streak >= 2, '连续天数由导入数据推导 >= 2', String(stt2.streak))
+  ok(stt2.total.completed === 2, '总完成数 = 导入的 2 个番茄', String(stt2.total.completed))
+  const exp = await get(base + '/api/export')
+  let expJson = null
+  try { expJson = JSON.parse(exp.body) } catch { /* ignore */ }
+  ok(exp.status === 200 && expJson && expJson.app === 'pomodmer', '导出返回可解析 JSON')
+  ok(expJson && expJson.sessions.length === 2, '导出内容含 2 条会话', expJson && String(expJson.sessions.length))
+  ok((exp.headers['content-disposition'] || '').includes('attachment'), '导出带 attachment 头')
+  const badImp = await json(req(base + '/api/import', 'POST', { data: { sessions: 'not-an-array' } }))
+  ok(badImp.status === 400, '非法导入 -> 400', String(badImp.status))
+
+  console.log('\n=== 9f. P1：主题 ===')
+  const th1 = (await json(req(base + '/api/settings', 'PATCH', { theme: 'dark' }))).data
+  ok(th1.settings.theme === 'dark', '主题切到 dark', th1.settings.theme)
+  const th2 = (await json(req(base + '/api/settings', 'PATCH', { theme: 'neon' }))).data
+  ok(th2.settings.theme === 'light', '非法主题归一化为 light', th2.settings.theme)
+
   console.log('\n=== 10. 落盘与重启恢复（被杀进程不静默补时）===')
   // 让一个番茄处于 running 状态，然后"硬杀"宿主（模拟断电/强杀），检查落盘数据
-  await json(req(base + '/api/timer/resume', 'POST'))
+  // 注意：上一步刚导入过数据，runtime 已被重置为 idle，所以这里用 start 而不是 resume
+  await json(req(base + '/api/timer/start', 'POST'))
   await sleep(600)
   const diskBefore = JSON.parse(readFileSync(storeFile, 'utf8'))
   ok(diskBefore.runtime.running === true, '运行态已实时落盘（running=true）')
