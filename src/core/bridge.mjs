@@ -18,6 +18,13 @@ export class JsonRpcBridge {
     if (this.child) return Promise.resolve(this.child.pid)
     this.child = spawn(this.pythonBin, ['-u', this.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      // 编码纪律：本桥一律以 UTF-8 写管道（child.stdin.write(str) 就是 UTF-8），
+      // 而 Windows 中文环境里 Python 默认按区域编码 gbk/cp936 解 stdio ——
+      // 中文会被解成乱码，甚至退化成本不该存在的孤立代理字符，
+      // 一路潜伏到 openpyxl 落盘才炸（lxml: surrogates not allowed）。
+      // 这里显式指定，worker 脚本内也有一道 reconfigure 兜底（两道都要，缺一不可：
+      // 脚本兜底管"谁来启动都对"，env 兜底管"将来新加的 py 脚本也自动对"）。
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     })
 
     this.child.on('error', (err) => {

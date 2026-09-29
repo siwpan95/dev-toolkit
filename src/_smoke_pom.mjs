@@ -273,11 +273,18 @@ async function main() {
   const rep = await json(req(base3 + '/api/report', 'POST', { days: 7 }))
   ok(rep.status === 200, '周报生成成功', rep.data && rep.data.error)
   ok(rep.data && existsSync(rep.data.file), 'xlsx 落盘：' + (rep.data && rep.data.file))
-  ok(rep.data && rep.data.sheets.length === 4, '四张表：概览/每日/会话/任务', rep.data && String(rep.data.sheets))
-  const backDay = await ctx3.table.readSheet(rep.data.file, '每日')
-  ok(backDay.max_row === 8, '「每日」= 表头 + 7 天', String(backDay.max_row))
-  const backSum = await ctx3.table.readSheet(rep.data.file, '概览')
-  ok(backSum.max_row === 10, '「概览」= 表头 + 9 项指标', String(backSum.max_row))
+  ok(rep.data && rep.data.sheets && rep.data.sheets.length === 4,
+    '四张表：概览/每日/会话/任务', rep.data && String(rep.data.sheets))
+  // 回读依赖上一步真的产出了文件：失败时不能让 TypeError 把整个 smoke 掀翻，
+  // 否则报错停在 "Cannot read properties of undefined"，真正的病因（生成失败的原因）反而被埋掉。
+  if (rep.data && existsSync(rep.data.file)) {
+    const backDay = await ctx3.table.readSheet(rep.data.file, '每日')
+    ok(backDay.max_row === 8, '「每日」= 表头 + 7 天', String(backDay.max_row))
+    const backSum = await ctx3.table.readSheet(rep.data.file, '概览')
+    ok(backSum.max_row === 10, '「概览」= 表头 + 9 项指标', String(backSum.max_row))
+  } else {
+    ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
+  }
   await stopHost()
 
   console.log('\n=== 12. P2/P3 资产自检 ===')

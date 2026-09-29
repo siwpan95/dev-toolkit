@@ -9,6 +9,13 @@ Cordis 表格应用 —— Python 侧 OpenPyXL 工作者（JSON-RPC over stdio�
   - 每个方法 try/except 兜住，返回 JSON-RPC error（-32601 未知方法 / -32000 执行异常），
     保证子进程不死。
 
+编码纪律：宿主 Node 一律以 UTF-8 写管道，故启动时强制把 stdio 转成 UTF-8（见 _force_utf8_stdio）。
+Windows 中文环境里 Python 默认按区域编码 gbk/cp936 解 stdin，UTF-8 中文会被解成乱码；
+解不动的字节还会退化成本不该出现的**孤立代理字符**（如 U+DCBC），
+这种字符串能一路存活到 openpyxl 落盘那一刻，才由 lxml 以
+"UnicodeEncodeError: surrogates not allowed" 报出来 —— 现场离病根很远，
+故在唯一的协议入口一次性掐掉。
+
 工作簿以 path 为键缓存在内存，save 时落盘；close 时保存并移出缓存。
 """
 
@@ -137,7 +144,31 @@ def handle(method, params):
     raise ValueError("unknown method: " + str(method))
 
 
+def _force_utf8_stdio():
+    """把三个标准流钉死成 UTF-8（Windows 区域编码下的必要动作）。
+
+    - stdin/stdout 是 JSON-RPC 协议通道，两端都必须是 UTF-8，一个字节都不能猜；
+      Node 的 child.stdin.write(str) 就是 UTF-8，所以 Python 侧也必须是 UTF-8。
+    - stdin 用 errors="replace"：真收到坏字节时退化成 U+FFFD，让 json.loads 失败后
+      按约定跳过这一行，而不是抛 UnicodeDecodeError 把整个循环掀翻。
+    - stdout 用 errors="strict"：宁可在这里明确报错，也不要往协议里写坏数据。
+    - stderr 用 errors="backslashreplace"：日志是排障通道，任何怪字符都不该让日志本身崩掉。
+
+    非 TextIOWrapper（例如已被重定向成别的对象）时静默跳过。
+    """
+    for stream, errors in (
+        (sys.stdin, "replace"),
+        (sys.stdout, "strict"),
+        (sys.stderr, "backslashreplace"),
+    ):
+        try:
+            stream.reconfigure(encoding="utf-8", errors=errors)
+        except Exception:
+            pass
+
+
 def main():
+    _force_utf8_stdio()
     for line in sys.stdin:
         line = line.strip()
         if not line:
