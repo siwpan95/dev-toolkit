@@ -19,6 +19,7 @@ const el = {
   unplannedList: $('unplannedList'), unplannedEmpty: $('unplannedEmpty'),
   exportBtn: $('btnExport'), exportXlsxBtn: $('btnExportXlsx'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
   importXlsxBtn: $('btnImportXlsx'), fileImportXlsx: $('fileImportXlsx'), applyXlsxBtn: $('btnApplyXlsx'),
+  monthBtn: $('btnMonth'), rangeBtn: $('btnRange'), rangeFrom: $('rangeFrom'), rangeTo: $('rangeTo'),
   ambient: $('cfgAmbient'), toastChk: $('cfgToast'), mini: $('btnMini'),
   reportBtn: $('btnReport'), reportHint: $('reportHint'), reportNote: $('reportNote'),
 }
@@ -577,6 +578,43 @@ el.fileImport.onchange = async () => {
     el.ioHint.className = 'hint err'
   }
   el.fileImport.value = ''
+}
+
+// 月报与自定义区间：与上面两个 xlsx 按钮共用同一条下载器
+async function exportXlsxTo(btn, url, label) {
+  btn.disabled = true
+  el.ioHint.className = 'hint'
+  el.ioHint.textContent = `正在生成${label}…`
+  try {
+    const { filename, size, info } = await downloadXlsx(url)
+    const extra = info ? `（${info.completed} 个番茄 / ${info.sessions} 条会话 / ${info.sheets} 张表）` : ''
+    el.ioHint.textContent = `已导出 ${filename}${extra} · ${Math.round(size / 1024)} KB`
+  } catch (e) {
+    el.ioHint.className = 'hint err'
+    el.ioHint.textContent = `${label}导出失败：` + e.message
+  } finally {
+    btn.disabled = false
+  }
+}
+
+el.monthBtn.onclick = () => exportXlsxTo(el.monthBtn, '/api/export?format=xlsx&scope=month', '月报')
+
+// 区间默认填最近 7 天，省得每次都手填；用户改了就按用户的来
+el.rangeBtn.onclick = () => {
+  const from = el.rangeFrom.value
+  const to = el.rangeTo.value
+  if (!from || !to) {
+    const today = new Date()
+    const p = (n) => String(n).padStart(2, '0')
+    const iso = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    const back = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)
+    el.rangeFrom.value = el.rangeFrom.value || iso(back)
+    el.rangeTo.value = el.rangeTo.value || iso(today)
+    el.ioHint.className = 'hint'
+    el.ioHint.textContent = `已填好最近 7 天（${el.rangeFrom.value} ~ ${el.rangeTo.value}），再点一次即导出`
+    return
+  }
+  exportXlsxTo(el.rangeBtn, `/api/export?format=xlsx&scope=range&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, '区间')
 }
 
 // ---- P3：xlsx 回灌（先预览，再确认；预览不写库）----

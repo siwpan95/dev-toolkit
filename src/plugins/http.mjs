@@ -198,13 +198,21 @@ export class HttpService extends Service {
         const report = this.ctx.get('report')
         if (!report) return json(501, { error: this._xlsxHint() })
         const scope = url.searchParams.get('scope') || 'all'
-        if (scope !== 'all' && scope !== 'weekly') {
-          // 不认识的 scope 不能默默当成 all：用户以为导的是周报、拿到的是全量，很难发现
-          return json(400, { error: 'scope 只支持 all（全量）或 weekly（周报），收到：' + scope })
+        if (!['all', 'weekly', 'month', 'range'].includes(scope)) {
+          // 不认识的 scope 不能默默当成 all：用户以为导的是月报、拿到的是全量，很难发现
+          return json(400, { error: 'scope 只支持 all（全量）/ weekly（周报）/ month（月报）/ range（自定义区间），收到：' + scope })
         }
         try {
           const days = Number(url.searchParams.get('days')) || 7
-          const out = scope === 'weekly' ? await report.weekly({ days }) : await report.full()
+          let out
+          if (scope === 'weekly') out = await report.weekly({ days })
+          else if (scope === 'month') out = await report.month({ month: url.searchParams.get('month') || undefined })
+          else if (scope === 'range') {
+            out = await report.range({
+              from: url.searchParams.get('from') || undefined,
+              to: url.searchParams.get('to') || undefined,
+            })
+          } else out = await report.full()
           const buf = await readFile(out.file)
           res.writeHead(200, {
             'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -220,7 +228,8 @@ export class HttpService extends Service {
           this._broadcast('report', { file: out.file, scope })
           return res.end(buf)
         } catch (e) {
-          return json(500, { error: 'xlsx 导出失败: ' + e.message })
+          // 入参问题回 400，其它才算服务端故障 —— 让用户能分清"我填错了"和"程序坏了"
+          return json(e.code === 'BAD_INPUT' ? 400 : 500, { error: 'xlsx 导出失败: ' + e.message })
         }
       }
       const body = JSON.stringify({ app: 'pomodmer', exportedAt: Date.now(), ...store.snapshot() }, null, 2)

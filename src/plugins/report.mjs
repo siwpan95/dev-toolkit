@@ -37,6 +37,39 @@ function localIso(ts) {
 }
 const mins = (ms) => Math.round((ms || 0) / 60000)
 const today = () => localIso(Date.now()).slice(0, 10)
+const dayKey = (ts) => {
+  const d = new Date(ts)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// 入参错误（HTTP 层据此回 400，而不是把用户输入问题当服务端故障回 500）
+const badInput = (msg) => Object.assign(new Error(msg), { code: 'BAD_INPUT' })
+
+// "墙上时间"（带时间但**没有时区标记**）—— 我们导出的就是这个形态
+const NAIVE_LOCAL = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?$/
+
+// 把 xlsx 里的时间还原成**绝对时刻**，三级优先：
+//   1) 逐行 epoch（导出时写在隐藏表里）+ 该行与"换算后的墙上时间"一致 → 行未被编辑，直接用 epoch
+//      （保留毫秒；跨时区、跨夏令时都精确）；
+//   2) 行被编辑过 → 用 _meta 的 tzOffsetMinutes 把墙上时间换算回绝对时刻（秒级精度）；
+//   3) 没有元数据（用户自制的表）→ 按本机时区解析，等同旧行为。
+// 注意第 1 步的一致性判断必须拿**换算后**的值去比：早先拿"本机解析值"去比，
+// 在 UTC 机器上它天然差 8 小时，于是 epoch 通道永远被判为"不一致"而退回秒级换算 —— 毫秒就这么丢了。
+function fixInstant(raw, naiveMs, rowEpoch, metaTz) {
+  const s = String(raw == null ? '' : raw).trim()
+  let converted = null
+  if (metaTz !== null && metaTz !== undefined && NAIVE_LOCAL.test(s)) {
+    const asUtc = Date.parse(s.replace(' ', 'T') + 'Z')
+    if (Number.isFinite(asUtc)) converted = asUtc - metaTz * 60000
+  }
+  if (rowEpoch !== null && rowEpoch !== undefined) {
+    const ref = converted === null ? naiveMs : converted
+    if (Math.abs(ref - rowEpoch) <= 3000) return rowEpoch
+  }
+  if (converted !== null) return converted
+  return naiveMs
+}
 
 // ---------- 回灌导入（P3）：Excel 里的中文/文本 → 库里的规范值 ----------
 // 认表头名、不认列序：用户在 Excel 里挪列、插列、调顺序都不该让导入失败。
@@ -117,16 +150,197 @@ export class ReportService extends Service {
     })
   }
 
-  async _export({ days, scope, name, all = false, includeUnplanned = false }) {
+  // 月报：整月 + 「本月 vs 上月」对比表（month 形如 '2026-08'，缺省为当前月）
+  month({ month } = {}) {
+    const now = new Date()
+    const target = month ? this._parseMonth(month) : { y: now.getFullYear(), m: now.getMonth() }
+    const win = this._monthWindow(target.y, target.m)
+    const prev = this._monthWindow(
+      target.m === 0 ? target.y - 1 : target.y,
+      target.m === 0 ? 11 : target.m - 1,
+    )
+    return this._export({
+      scope: win.label,
+      name: `pomodmer-month-${win.tag}.xlsx`,
+      window: win,
+      includeUnplanned: true,
+      compareWith: prev,
+    })
+  }
+
+  // 自定义区间（含首尾两天，均为本地日期 YYYY-MM-DD）
+  range({ from, to } = {}) {
+    const win = this._rangeWindow(from, to)
+    return this._export({
+      scope: win.label,
+      name: `pomodmer-range-${win.fromKey}_${win.toKey}.xlsx`,
+      window: win,
+      includeUnplanned: true,
+    })
+  }
+
+  _parseMonth(s) {
+    const m = /^(\d{4})-(\d{1,2})$/.exec(String(s || '').trim())
+    if (!m) throw badInput(`month 需要 YYYY-MM 格式，收到：${s}`)
+    const y = Number(m[1])
+    const mm = Number(m[2])
+    if (mm < 1 || mm > 12) throw badInput(`month 的月份必须在 1-12，收到：${s}`)
+    return { y, m: mm - 1 }
+  }
+
+  // [当月 1 日 00:00, 月末 23:59:59.999]；若是**当前月**则截到此刻
+  // （把还没发生的日子算进"活跃天数/平均每天"会得出误导性的低值）
+  _monthWindow(y, m) {
+    const from = new Date(y, m, 1, 0, 0, 0, 0)
+    const monthEnd = new Date(y, m + 1, 0, 23, 59, 59, 999)
+    const now = Date.now()
+    const to = Math.min(monthEnd.getTime(), now)
+    const toDate = new Date(Math.max(to, from.getTime()))
+    const tag = `${y}-${String(m + 1).padStart(2, '0')}`
+    return {
+      from: from.getTime(),
+      to: toDate.getTime(),
+      fromKey: dayKey(from),
+      toKey: dayKey(toDate),
+      dayCount: Math.round((new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate()) - from) / 86400000) + 1,
+      tag,
+      label: `${tag}（${dayKey(from)} ~ ${dayKey(toDate)}）`,
+    }
+  }
+
+  _rangeWindow(from, to) {
+    const parse = (s, field) => {
+      const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(s || '').trim())
+      if (!m) throw badInput(`${field} 需要 YYYY-MM-DD 格式，收到：${s}`)
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0)
+      if (Number.isNaN(d.getTime()) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) {
+        throw badInput(`${field} 不是合法日期：${s}`)
+      }
+      return d
+    }
+    const d1 = parse(from, 'from')
+    const d2 = parse(to || from, 'to')
+    if (d2.getTime() < d1.getTime()) throw badInput(`区间起点晚于终点：${from} > ${to}`)
+    const dayCount = Math.round((d2 - d1) / 86400000) + 1
+    if (dayCount > MAX_DAYS) throw badInput(`区间跨度过大：${dayCount} 天 > ${MAX_DAYS} 天上限`)
+    const end = new Date(d2.getFullYear(), d2.getMonth(), d2.getDate(), 23, 59, 59, 999)
+    return {
+      from: d1.getTime(),
+      to: end.getTime(),
+      fromKey: dayKey(d1),
+      toKey: dayKey(d2),
+      dayCount,
+      label: `${dayKey(d1)} ~ ${dayKey(d2)}（${dayCount} 天）`,
+    }
+  }
+
+  // 任意区间的聚合。为什么不复用 timer.stats()：那个口径永远是"截至今天最近 N 天"，
+  // 而月度/自定义区间是显式的 [from, to]（可以是过去的任意一段），两者的"每日"与"总数"都不同。
+  // 日切桶按**本地日**（与 UI、与存档一致），且用日期构造逐天推进 —— 加 86400000 跨 DST 会错位。
+  _aggregate(sessions, from, to) {
+    const inWin = sessions.filter((s) => {
+      const t = s.startAt || 0
+      return t >= from && t <= to
+    })
+    const byDay = new Map()
+    const start = new Date(from)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(to)
+    end.setHours(0, 0, 0, 0)
+    for (let d = new Date(start); d.getTime() <= end.getTime(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      byDay.set(dayKey(d), { date: dayKey(d), completed: 0, abandoned: 0, focusMs: 0 })
+    }
+
+    const taskById = new Map(this.ctx.store.tasks.map((t) => [t.id, t]))
+    const byTaskMap = new Map()
+    const total = { completed: 0, abandoned: 0, focusMs: 0 }
+    for (const s of inWin) {
+      const day = byDay.get(dayKey(s.startAt))
+      if (s.type !== 'focus') continue // 休息不计入"番茄完成数/专注时长"
+      if (s.completed) {
+        total.completed++
+        total.focusMs += s.actualMs || 0
+        if (day) { day.completed++; day.focusMs += s.actualMs || 0 }
+        if (s.taskId) {
+          const t = taskById.get(s.taskId)
+          const title = t ? t.title : '（已删除的任务）'
+          const rec = byTaskMap.get(title) || { title, estimate: t ? t.estimate : 0, spent: 0, done: t ? !!t.done : false }
+          rec.spent++
+          byTaskMap.set(title, rec)
+        }
+      } else {
+        total.abandoned++
+        if (day) day.abandoned++
+      }
+    }
+
+    const days = [...byDay.values()]
+    const unplanned = (this.ctx.store.unplanned || [])
+      .filter((u) => (u.at || 0) >= from && (u.at || 0) <= to)
+      .sort((a, b) => (b.at || 0) - (a.at || 0))
+    return {
+      sessions: inWin,
+      days,
+      total,
+      activeDays: days.filter((d) => d.completed > 0 || d.abandoned > 0).length,
+      byTask: [...byTaskMap.values()].sort((a, b) => b.spent - a.spent),
+      unplanned,
+    }
+  }
+
+  async _export({ days = 7, scope, name, all = false, includeUnplanned = false, window = null, compareWith = null }) {
     const table = this._table()
     const store = this.ctx.store
-    const stats = this.ctx.timer.stats({ days })
-
-    const sessions = all
-      ? (store.sessions || []).slice()
-      : (store.sessions || []).filter((s) => (s.startAt || 0) >= Date.now() - days * 86400000)
     const file = resolve(process.cwd(), this.outDir, name)
     mkdirSync(dirname(file), { recursive: true })
+
+    // 两条口径（"最近 N 天/全部" 与 "显式区间"）只在**数据视图**上不同，建表逻辑完全共用：
+    // 概览固定 9 行、其余各表的列与格式也一致，避免两套建表代码各自漂移。
+    let sessions
+    let dayRows
+    let byTask
+    let unplanned
+    let overview
+    let stats = null
+    let agg = null
+    if (window) {
+      agg = this._aggregate(store.sessions || [], window.from, window.to)
+      sessions = agg.sessions
+      dayRows = agg.days.map((d) => [d.date, d.completed, d.abandoned, mins(d.focusMs)])
+      byTask = agg.byTask
+      unplanned = agg.unplanned
+      overview = [
+        ['统计区间', window.label],
+        ['完成番茄', agg.total.completed],
+        ['专注总时长(分钟)', mins(agg.total.focusMs)],
+        ['活跃天数', agg.activeDays],
+        ['作废番茄', agg.total.abandoned],
+        ['计划外事件', unplanned.length],
+        ['平均每天(分钟)', Math.round(mins(agg.total.focusMs) / Math.max(1, window.dayCount))],
+        ['会话条数', agg.sessions.length],
+        ['生成时间', localIso(Date.now())],
+      ]
+      days = window.dayCount
+    } else {
+      stats = this.ctx.timer.stats({ days })
+      sessions = all
+        ? (store.sessions || []).slice()
+        : (store.sessions || []).filter((s) => (s.startAt || 0) >= Date.now() - days * 86400000)
+      dayRows = stats.recent.map((d) => [d.date, d.completed, d.abandoned, mins(d.focusMs)])
+      byTask = stats.byTask
+      unplanned = (store.unplanned || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0))
+      overview = [
+        ['统计区间', scope],
+        ['完成番茄', stats.total.completed],
+        ['专注总时长(分钟)', mins(stats.total.focusMs)],
+        ['连续天数', stats.streak],
+        ['今日完成', stats.today.completed],
+        ['今日专注(分钟)', mins(stats.today.focusMs)],
+        ['今日中断', stats.today.interrupts],
+        ['计划外事件', (store.unplanned || []).length],
+        ['生成时间', localIso(Date.now())],
+      ]
+    }
 
     const titleOf = (id) => {
       const t = store.tasks.find((x) => x.id === id)
@@ -139,17 +353,7 @@ export class ReportService extends Service {
     await table.createWorkbook(file, '概览')
     await table.writeRows(file, '概览', 1, 1, [['指标', '值']])
     // 第 2 列混了文本/数字/日期：类型声明只对"能解析的字符串"生效，其余原样写入
-    await table.writeRows(file, '概览', 2, 1, [
-      ['统计区间', scope],
-      ['完成番茄', stats.total.completed],
-      ['专注总时长(分钟)', mins(stats.total.focusMs)],
-      ['连续天数', stats.streak],
-      ['今日完成', stats.today.completed],
-      ['今日专注(分钟)', mins(stats.today.focusMs)],
-      ['今日中断', stats.today.interrupts],
-      ['计划外事件', (store.unplanned || []).length],
-      ['生成时间', localIso(Date.now())],
-    ], { colTypes: ['text', 'datetime'] })
+    await table.writeRows(file, '概览', 2, 1, overview, { colTypes: ['text', 'datetime'] })
     await table.setNumberFormat(file, '概览', [{ range: 'B10', format: DATETIME_FMT }])
     await table.styleHeader(file, '概览', 1, 2, { fill: 'FFE24B4A' })
     await table.setColumnWidth(file, '概览', 1, 20)
@@ -159,7 +363,6 @@ export class ReportService extends Service {
     sheets.push('每日')
     await table.addSheet(file, '每日')
     await table.writeRows(file, '每日', 1, 1, [['日期', '完成番茄', '作废', '专注(分钟)']])
-    const dayRows = stats.recent.map((d) => [d.date, d.completed, d.abandoned, mins(d.focusMs)])
     await table.writeRows(file, '每日', 2, 1, dayRows, { colTypes: ['date', 'number', 'number', 'number'] })
     if (dayRows.length) {
       await table.setNumberFormat(file, '每日', [{ range: `A2:A${dayRows.length + 1}`, format: DATE_FMT }])
@@ -194,16 +397,15 @@ export class ReportService extends Service {
     sheets.push('任务')
     await table.addSheet(file, '任务')
     await table.writeRows(file, '任务', 1, 1, [['任务', '预估番茄', '实际番茄', '已完成']])
-    const taskRows = stats.byTask.map((t) => [t.title, t.estimate || 1, t.spent || 0, t.done ? '是' : '否'])
+    const taskRows = byTask.map((t) => [t.title, t.estimate || 1, t.spent || 0, t.done ? '是' : '否'])
     await table.writeRows(file, '任务', 2, 1, taskRows.length ? taskRows : [[EMPTY_TASKS, 0, 0, '']],
       { colTypes: ['text', 'number', 'number', 'text'] })
     await table.styleHeader(file, '任务', 1, 4, { fill: 'FFBA7517' })
     await table.setColumnWidth(file, '任务', 1, 34)
     for (let c = 2; c <= 4; c++) await table.setColumnWidth(file, '任务', c, 12)
 
-    // ---- 表 5（仅全量导出）：计划外事件 ----
-    // 这些记录原先只有 JSON 导出带得走，人在 Excel 里看不到；全量导出把它们补上。
-    const unplanned = (store.unplanned || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0))
+    // ---- 表 5（全量/月度/区间）：计划外事件 ----
+    // 这些记录原先只有 JSON 导出带得走，人在 Excel 里看不到；现在凡是"全量口径"的导出都带上。
     if (includeUnplanned) {
       sheets.push('计划外事件')
       await table.addSheet(file, '计划外事件')
@@ -226,10 +428,67 @@ export class ReportService extends Service {
       await table.setColumnWidth(file, '计划外事件', 5, 22)
     }
 
+    // ---- 表 6（仅月报）：本月 vs 上月对比 ----
+    if (compareWith) {
+      const prev = this._aggregate(store.sessions || [], compareWith.from, compareWith.to)
+      const rows = [
+        ['完成番茄', agg.total.completed, prev.total.completed],
+        ['专注总时长(分钟)', mins(agg.total.focusMs), mins(prev.total.focusMs)],
+        ['活跃天数', agg.activeDays, prev.activeDays],
+        ['作废番茄', agg.total.abandoned, prev.total.abandoned],
+        ['计划外事件', unplanned.length, prev.unplanned.length],
+        ['会话条数', agg.sessions.length, prev.sessions.length],
+      ].map(([label, cur, before]) => {
+        const delta = cur - before
+        const pct = before === 0 ? (cur === 0 ? '—' : '+∞') : (delta >= 0 ? '+' : '') + Math.round((delta / before) * 100) + '%'
+        return [label, cur, before, (delta >= 0 ? '+' : '') + delta, pct]
+      })
+      sheets.push('对比')
+      await table.addSheet(file, '对比')
+      await table.writeRows(file, '对比', 1, 1, [['指标', '本月', '上月', '变化', '变化率']])
+      await table.writeRows(file, '对比', 2, 1, rows, {
+        colTypes: ['text', 'number', 'number', 'number', 'text'],
+      })
+      await table.styleHeader(file, '对比', 1, 5, { fill: 'FFC00000' })
+      await table.setColumnWidth(file, '对比', 1, 22)
+      for (let c = 2; c <= 5; c++) await table.setColumnWidth(file, '对比', c, 12)
+    }
+
+    // ---- 隐藏表：给"回灌"用的机器元数据 ----
+    // 为什么必须有：xlsx 单元格里存的是**本地墙上时间**（不带时区偏移），换台机器导入会整体平移
+    // （实测：上海导出 → UTC 机器导入 = +480 分钟，正好等于时差）。这里记两样东西：
+    //   _meta   ：导出端时区偏移（分钟，东为正）等上下文；
+    //   _epochs ：逐行的绝对时刻（毫秒）—— 未被编辑的行直接用它还原，跨时区、跨夏令时都精确。
+    await table.addSheet(file, '_meta', { hidden: true })
+    await table.writeRows(file, '_meta', 1, 1, [['key', 'value']])
+    await table.writeRows(file, '_meta', 2, 1, [
+      ['app', 'pomodmer'],
+      ['scope', window ? window.label : scope],
+      ['exportedAt', localIso(Date.now())],
+      ['tzOffsetMinutes', -new Date().getTimezoneOffset()],
+      ['sessions', sessions.length],
+      ['unplanned', includeUnplanned ? unplanned.length : 0],
+    ], { colTypes: ['text', 'text'] })
+
+    const epochRows = sessions.map((s, i) => ['会话', i + 2, s.startAt || 0, s.endAt || 0])
+    if (includeUnplanned) unplanned.forEach((u, i) => epochRows.push(['计划外事件', i + 2, u.at || 0, '']))
+    await table.addSheet(file, '_epochs', { hidden: true })
+    await table.writeRows(file, '_epochs', 1, 1, [['表', '行', 'startMs', 'endMs']])
+    if (epochRows.length) {
+      await table.writeRows(file, '_epochs', 2, 1, epochRows, { colTypes: ['text', 'number', 'number', 'number'] })
+    }
+
     // 每张表都冻结表头：几十上百行会话明细往下翻时，没有表头等于看天书
     for (const s of sheets) await table.freezePanes(file, s, 'A2')
 
     await table.save(file)
+
+    const summary = {
+      completed: window ? agg.total.completed : stats.total.completed,
+      focusMinutes: mins(window ? agg.total.focusMs : stats.total.focusMs),
+    }
+    if (stats) summary.streak = stats.streak
+    if (agg) summary.activeDays = agg.activeDays
 
     return {
       file,
@@ -238,11 +497,8 @@ export class ReportService extends Service {
       sheets,
       sessions: sessions.length,
       unplanned: includeUnplanned ? unplanned.length : undefined,
-      summary: {
-        completed: stats.total.completed,
-        focusMinutes: mins(stats.total.focusMs),
-        streak: stats.streak,
-      },
+      tzOffsetMinutes: -new Date().getTimezoneOffset(),
+      summary,
     }
   }
 
@@ -281,6 +537,31 @@ export class ReportService extends Service {
     }
     const cell = (row, idx, name) => (idx[name] === undefined ? null : row[idx[name]])
 
+    // 隐藏元数据（我们自己导出的文件才有；用户自制的表没有 → 退回旧行为，不报错）
+    let metaTz = null
+    if (names.includes('_meta')) {
+      const metaRows = (await table.readSheet(file, '_meta')).rows || []
+      for (const r of metaRows.slice(1)) {
+        if (textOf(r[0]) === 'tzOffsetMinutes') {
+          const n = numOf(r[1])
+          if (n !== null) metaTz = n
+        }
+      }
+    }
+    const epochMap = new Map()
+    if (names.includes('_epochs')) {
+      const epochRows = (await table.readSheet(file, '_epochs')).rows || []
+      for (const r of epochRows.slice(1)) {
+        const s = numOf(r[2])
+        const e = numOf(r[3])
+        epochMap.set(textOf(r[0]) + ':' + numOf(r[1]), { start: s, end: e })
+      }
+    }
+    if (metaTz !== null || epochMap.size) {
+      this.ctx.logger.info('report: 回灌读到元数据（tzOffset=%s 分钟，逐行 epoch=%d 条）',
+        metaTz === null ? '无' : metaTz, epochMap.size)
+    }
+
     // ---- 任务 ----
     const taskRows = await read('任务')
     if (taskRows) {
@@ -311,13 +592,18 @@ export class ReportService extends Service {
       } else {
         for (let i = 1; i < sessRows.length; i++) {
           const row = sessRows[i]
-          const startAt = parseTime(cell(row, idx, '开始'))
+          const ep = epochMap.get('会话:' + (i + 1))
+          const rawStart = cell(row, idx, '开始')
+          const naiveStart = parseTime(rawStart)
+          const startAt = naiveStart === null ? null : fixInstant(rawStart, naiveStart, ep ? ep.start : null, metaTz)
           const type = TYPE_IN[textOf(cell(row, idx, '类型'))]
           if (!startAt || !type) {
             warnings.push(`「会话」第 ${i + 1} 行缺少可解析的开始时间或类型（类型=${textOf(cell(row, idx, '类型')) || '空'}），已跳过`)
             continue
           }
-          const endAt = parseTime(cell(row, idx, '结束'))
+          const rawEnd = cell(row, idx, '结束')
+          const naiveEnd = parseTime(rawEnd)
+          const endAt = naiveEnd === null ? null : fixInstant(rawEnd, naiveEnd, ep ? ep.end : null, metaTz)
           const minutes = numOf(cell(row, idx, '时长(分钟)'))
           out.sessions.push({
             startAt,
@@ -343,7 +629,10 @@ export class ReportService extends Service {
       } else {
         for (let i = 1; i < unpRows.length; i++) {
           const row = unpRows[i]
-          const at = parseTime(cell(row, idx, '时间'))
+          const ep = epochMap.get('计划外事件:' + (i + 1))
+          const rawAt = cell(row, idx, '时间')
+          const naiveAt = parseTime(rawAt)
+          const at = naiveAt === null ? null : fixInstant(rawAt, naiveAt, ep ? ep.start : null, metaTz)
           const note = textOf(cell(row, idx, '备注'))
           if (!at) {
             // 空表占位行：静默跳过，别拿它去刷告警

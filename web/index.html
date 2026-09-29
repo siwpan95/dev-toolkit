@@ -117,11 +117,19 @@
     <div class="row io">
       <button class="btn small" id="btnExport">导出数据 JSON</button>
       <button class="btn small" id="btnExportXlsx">导出数据 xlsx</button>
+      <button class="btn small" id="btnMonth">导出月报 xlsx</button>
       <button class="btn small" id="btnImport">导入数据 JSON</button>
       <input type="file" id="fileImport" accept="application/json,.json" hidden>
       <button class="btn small" id="btnImportXlsx">回灌 xlsx</button>
       <input type="file" id="fileImportXlsx" accept=".xlsx" hidden>
       <button class="btn small" id="btnApplyXlsx" hidden>确认导入</button>
+    </div>
+    <div class="row io">
+      <label class="hint" for="rangeFrom">自定义区间</label>
+      <input type="date" id="rangeFrom">
+      <span class="hint">~</span>
+      <input type="date" id="rangeTo">
+      <button class="btn small" id="btnRange">导出区间 xlsx</button>
     </div>
     <span class="hint" id="ioHint"></span>
   </details>

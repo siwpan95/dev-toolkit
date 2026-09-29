@@ -75,7 +75,7 @@
 | GET | `/api/report` | 能力探测：`{ available, hint }`（未启用时 hint 说明是哪种原因） |
 | POST | `/api/report` | 生成周报并返回**磁盘路径**（脚本/定时任务用） |
 | GET | `/api/export` | 导出全部数据（JSON 附件，可被 `/api/import` 再吃回去） |
-| GET | `/api/export?format=xlsx` | xlsx 附件下载：`scope=all`（默认，5 张表）/ `scope=weekly&days=N`（4 张表）；响应头 `X-Pomodmer-Info` 带摘要 |
+| GET | `/api/export?format=xlsx` | xlsx 附件下载。`scope=all`（默认，5 张可见表全量）/ `weekly&days=N`（周报 4 张）/ `month[&month=YYYY-MM]`（月报 6 张，含「对比」）/ `range&from=YYYY-MM-DD&to=YYYY-MM-DD`（自定义区间）；入参非法一律 400；响应头 `X-Pomodmer-Info` 带回摘要 |
 | POST | `/api/import` | JSON **替换式**导入（校验失败 400；导入后一律停在暂停态） |
 | POST | `/api/import/xlsx?mode=preview\|apply` | xlsx **去重追加**回灌：`preview` 只算不写，`apply` 才落库 |
 
@@ -119,7 +119,7 @@
 | 统计 | 今日 / 连续天数 / 最近 7 天柱状图 / 12 周热力图 / 每任务进度（**纯 SVG 手绘**，不引图表库） |
 | 中断记录 | 记内部/外部中断 + 备注，列表倒序，可删 |
 | 设置 | 专注/短休/长休时长、长休间隔、自动开始休息/专注、提示音、滴答声、浏览器通知、Windows 原生气泡、白噪音（关/白/棕）、主题 |
-| 数据区 | 导出 JSON、导出 xlsx、导入 JSON、**回灌 xlsx**（先预览"新增/更新/跳过"再确认）、导出周报 xlsx |
+| 数据区 | 导出 JSON、导出 xlsx、**导出月报 xlsx**（含本月 vs 上月对比）、**自定义区间导出**（两个日期框，空了先自动填最近 7 天、再点一次即导出）、导入 JSON、**回灌 xlsx**（先预览"新增/更新/跳过"再确认）、导出周报 xlsx |
 | 快捷键 | 空格 = 开始/暂停（输入框/按钮聚焦时不触发）；任务标题与中断备注里 Enter 提交 |
 | 实时性 | SSE 驱动：计时、阶段切换、统计、导入结果都会自动刷新 |
 
@@ -165,11 +165,11 @@ pomodmer.bat                   # Windows 双击即用（缺依赖自动 npm inst
 
 | 分类 | 方法（JS 侧 `ctx.table.*`） |
 |---|---|
-| 工作簿 | `ping` `createWorkbook` `addSheet` `save` `close` |
+| 工作簿 | `ping` `createWorkbook` `addSheet(path, name, { hidden })` `save` `close` |
 | 写入 | `writeRows(…, { colTypes })`（`text`/`number`/`datetime`/`date`/`time`，把 ISO 串还原成 Excel 原生类型） `writeCell` `setCellText` |
 | 样式 | `styleHeader` `setColumnWidth` `setNumberFormat` `freezePanes` `setCellFill` `setBorders` `setComment` |
 | 结构 | `mergeCells` |
-| 读取 | `readSheet`（日期以 ISO 串返回） `sheetMeta`（冻结窗格 / 数字格式 / 值类型 / 合并区 / 批注） |
+| 读取 | `readSheet`（日期以 ISO 串返回） `sheetMeta`（冻结窗格 / 数字格式 / 值类型 / 合并区 / 批注 / **可见表与隐藏表清单**） |
 | 地图/VTT（本项目未使用） | `readMap` `renderMapPng` `renderToken` `genDungeon` `exportDonjon` `importDonjon` |
 
 **单一权威源 + 来源锁**（防两个仓库再次静默分叉）：
@@ -216,15 +216,16 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 ## 10. 测试与验收
 
 - `npm run smoke` → 期望 **ALL PASS（EXIT=0）**：`src/_smoke.mjs`（Cordis 内核，6 项输出）+
-  `src/_smoke_pom.mjs`（**27 个测试节次 + 结果汇总，129 处 `ok(...)` 断言**），
+  `src/_smoke_pom.mjs`（**30 个测试节次 + 结果汇总，144 处 `ok(...)` 断言**），
   覆盖启动 → 状态 → 设置 → 计时流转 → 跳过/作废 → 任务 CRUD → 静态资源与路径穿越 →
   SSE → 任务归属 → 中断 CRUD → 统计 → 导出导入 → 主题 → 落盘与重启恢复 →
   周报 xlsx → xlsx 数据形态 → 联合套件能力 → 全量导出 → 回灌（预览/幂等/往返不翻倍）→
   导出面（scope/days）→ worker 超时与崩溃自愈 → SSE 断开后下载不被带崩 →
+  月报与对比表 → 自定义区间与入参校验 → **跨时区回灌逐毫秒相等** →
   资产自检（含文档存在性）→ 来源锁 → 自动启用决策。
 - 权威源 `cordis-table-app` 另有 `src/_smoke_bridge.mjs`（**12 条**，已并入它的 `npm test`）：
   用"会按需装死的假 worker"确定性验证超时、重启、崩溃自愈与冷启动宽限。
-- `npm run smoke:ui` → 真实浏览器界面验收 11 条（详见 §11 第 9 条）。
+- `npm run smoke:ui` → 真实浏览器界面验收 **14 条**（详见 §11 第 9 条，含月报/区间按钮）。
 - `npm run bench:export` → 导出耗时/内存基线（实测：3000 条会话 429ms / 107KB / RSS +11MB）。
 - 权威源 `cordis-table-app`：`npm test`（内核冒烟 + 地图演示 + 程序化生成 + DonJon 互通往返 600 格比对）。
 - 数据落 `os.tmpdir()`、端口由系统分配，冒烟不污染真实 `data/store.json`、不抢端口。
@@ -238,7 +239,7 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 | 1 | ~~`JsonRpcBridge.call()` 没有超时~~ **已修（P5）** | 现在每次调用都有超时（默认 15s，可用 `table.config.timeoutMs` 或 `POMODMER_TABLE_TIMEOUT_MS` 调整），并给**新 worker 的第一笔调用**额外冷启动宽限（默认 10s：那笔账是解释器启动 + openpyxl 导入，不该算进调用预算）。**卡住**→超时后 reject 并杀掉重启 worker；**崩溃**→桥自动置为"未启动"，下一次调用直接拉起新进程。不自动重试（重试有副作用），错误信息会写明"已重启，请重试"；重启同时打 warn 日志 |
 | 2 | 单 worker、调用串行 | 一次大导出会阻塞同一 worker 上的其它表格调用（实测 3000 条会话导出 429ms，影响可忽略） |
 | 3 | Python 侧 `WORKBOOKS` 按 path 常驻内存 | 长期运行且频繁导入会缓慢占用内存（`close` 会顺带落盘，故未主动调用；实测 3000 条会话导出 RSS 62→73MB） |
-| 4 | xlsx 时间只有**秒精度**、且存的是**本地墙上时间（无时区偏移）** | 回灌改用 ±2 秒容差去重。**同机同 TZ 往返 0 漂移**；但**跨时区导入会整体平移**（实测：上海导出 → UTC 机器导入 = +480 分钟，正好等于时差）。DST 跳变/回拨时刻渲染正确（实测 0s 漂移）。可选修法：导出时在隐藏表记 `tzOffsetMinutes`，导入按它还原 |
+| 4 | xlsx 时间只有**秒精度**；文件里存的是**本地墙上时间（无时区偏移）** | **跨时区导入已修（P6）**：导出时在隐藏表写下 `_meta.tzOffsetMinutes` 与 `_epochs`（逐行绝对毫秒），导入按它们还原 —— 未编辑的行**逐毫秒精确**（实测上海导出 → UTC 导入，含夏令时跳变/回拨时刻都一致）；被编辑过的行退回时区偏移换算，精度到秒（单元格本身只有秒）。用户自制、无元数据表的 xlsx 仍按本机时区解释（等同旧行为） |
 | 5 | 回灌只认本应用导出的表头名 | 外来自定义表头需先改列名（或后续加列映射配置） |
 | 6 | 回灌**不做删除** | Excel 里删掉的行不会从库里消失（有意为之，避免误删历史）；要清空请用 JSON 替换式导入 |
 | 7 | 回灌的 `plannedMs` 用 `actualMs` 兜底 | xlsx 没有"计划时长"列，故导入的会话"实际/计划"恒为 1:1 |

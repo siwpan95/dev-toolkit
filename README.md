@@ -103,18 +103,24 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 
 三种用法，同一份 worker 支撑：
 
-1. **UI / HTTP 出报表**（两条链路，分工明确）：
+1. **UI / HTTP 出报表**（四条链路，分工明确）：
    - `GET /api/export?format=xlsx&scope=weekly&days=7` → `report.weekly({ days })`：**周报**，最近 N 天，
      四张表：概览 / 每日 / 会话 / 任务。UI 的「导出周报 xlsx」按钮走这条，直接下载。
-   - `GET /api/export?format=xlsx`（`scope=all`）→ `report.full()`：**全量导出**，从第一条会话到今天，
-     五张表（多一张「计划外事件」），同样以附件直接下载。
-   - 两个下载响应都带 `X-Pomodmer-Info` 摘要头（scope / days / 表数 / 会话数 / 完成番茄），前端据此回显。
-   - 需要**磁盘路径**而不是浏览器下载时（脚本、定时任务），仍可用 `POST /api/report` → 返回生成的文件路径。
+   - `scope=month[&month=YYYY-MM]` → `report.month()`：**月报**，整月 + 一张「对比」表（本月 vs 上月的
+     完成番茄 / 专注时长 / 活跃天数 / 作废 / 计划外事件 / 会话条数，含变化与变化率）。
+   - `scope=range&from=&to=` → `report.range()`：**自定义区间**（含首尾两天），UI 里给两个日期框，
+     空了先自动填最近 7 天、再点一次才导出。
+   - `scope=all` → `report.full()`：**全量导出**，从第一条会话到今天，五张表（多一张「计划外事件」）。
+   - 每条都以附件直接下载，响应头带 `X-Pomodmer-Info` 摘要（scope / days / 表数 / 会话数 / 完成番茄）；
+     需要**磁盘路径**而不是浏览器下载时（脚本、定时任务），仍可用 `POST /api/report`。
+   - 导出的 xlsx 里还有两张**隐藏表**：`_meta`（时区偏移等上下文）与 `_epochs`（逐行绝对毫秒）。
+     它们是"跨时区回灌仍逐毫秒精确"的依据（见下方回灌说明）。
    - **回灌**：`POST /api/import/xlsx?mode=preview|apply` → `report.importXlsx(file, { mode })`。
      导出 → 在 Excel 里改 → 导回，是这条能力的完整闭环。语义是**去重追加**：只新增 + 有限更新
      （任务的预估/完成状态），**从不删除**已有记录；先 `preview` 拿到"新增/更新/跳过"的计划，确认后再 `apply`。
-     三个不变量在冒烟里都有断言：预览不写库；同一份表重复导入全部跳过（幂等）；
-     **原样导出的文件再导回一条都不新增**（xlsx 只有秒精度，按毫秒比对会把历史翻倍）。
+     四个不变量在冒烟里都有断言：预览不写库；同一份表重复导入全部跳过（幂等）；
+     **原样导出的文件再导回一条都不新增**（xlsx 只有秒精度，按毫秒比对会把历史翻倍）；
+     **跨时区导入逐毫秒等于导出时的绝对时刻**（靠隐藏表 `_meta`/`_epochs`；被编辑过的行按文件记录的时区偏移换算，精度到秒）。
    - 分工：`GET /api/export`（JSON）用来**回灌备份**（能被 `/api/import` 再吃回去），
      xlsx 三条链路用来**给人看、二次分析、改完再导回**（真实日期、数字格式、冻结表头，
      可以直接排序/筛选/透视）。
@@ -211,9 +217,10 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 **P1**：任务清单（番茄归属，实际/预估对比）、统计面板（今日/连续天数/最近 7 天柱状图/
 12 周热力图/每任务进度条）、中断记录（内部/外部 + 计划外事件列表）、数据导出/导入 JSON。
 
-**P2**：xlsx 导出两条链路 —— 周报（最近 N 天，四张表）与**全量导出**（从第一条会话到今天，五张表，
-多一张「计划外事件」）；日期是 Excel 原生日期、带数字格式、表头冻结；**xlsx 回灌**（导出 → 在 Excel 里改 →
-导回，先预览再确认，去重追加不删记录）；白噪音与棕噪音（Web Audio 实时合成）、
+**P2**：xlsx 导出四条链路 —— 周报（最近 N 天）/ **月报**（整月 + 「本月 vs 上月」对比）/
+**自定义区间**（任意 from~to）/ **全量导出**（从第一条会话到今天）；日期是 Excel 原生日期、带数字格式、
+表头冻结；**xlsx 回灌**（导出 → 在 Excel 里改 → 导回，先预览再确认，去重追加不删记录，
+且**跨时区导入逐毫秒精确**）；白噪音与棕噪音（Web Audio 实时合成）、
 迷你窗（独立小窗只显示倒计时）、Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
 
 **P3（可选）**：Electron 桌面壳 —— 托盘常驻、窗口置顶、`Ctrl+Alt+Space` 全局快捷键、
@@ -236,7 +243,7 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 | DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
 | GET / POST | `/api/report` | 周报能力探测 / 生成周报 xlsx（未启用时 GET 给提示、POST 返回 501） |
 | GET | `/api/export` | 导出全部数据（JSON 附件；**用来回灌备份**，可被 `/api/import` 再导入） |
-| GET | `/api/export?format=xlsx` | xlsx 导出（附件下载）。`scope=all`（默认，5 张表全量）/ `scope=weekly&days=7`（周报 4 张表）；响应头 `X-Pomodmer-Info` 带回摘要 |
+| GET | `/api/export?format=xlsx` | xlsx 导出（附件下载）。`scope=all`（默认，5 张可见表全量）/ `weekly&days=7`（周报 4 张）/ `month[&month=YYYY-MM]`（月报 6 张，含「本月 vs 上月」对比）/ `range&from=&to=`（自定义区间）；入参非法 → 400；响应头 `X-Pomodmer-Info` 带回摘要 |
 | POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
 | POST | `/api/import/xlsx?mode=preview\|apply` | 从 xlsx **回灌**：`preview` 只算不写（先看会新增/更新/跳过多少），`apply` 才落库；去重追加，**永不删已有记录** |
 

@@ -343,6 +343,8 @@ async function main() {
   ok(rep.data && existsSync(rep.data.file), 'xlsx 落盘：' + (rep.data && rep.data.file))
   ok(rep.data && rep.data.sheets && rep.data.sheets.length === 4,
     '四张表：概览/每日/会话/任务', rep.data && String(rep.data.sheets))
+  // 11k 跨时区验收要用这份导出产物；它在下面的 if 块里产生，所以先在这里占位
+  let dlPathForTz = null
   // 回读依赖上一步真的产出了文件：失败时不能让 TypeError 把整个 smoke 掀翻，
   // 否则报错停在 "Cannot read properties of undefined"，真正的病因（生成失败的原因）反而被埋掉。
   if (rep.data && existsSync(rep.data.file)) {
@@ -399,6 +401,7 @@ async function main() {
     await json(req(base3 + '/api/unplanned', 'POST', { kind: 'external', note: '冒烟-全量导出' }))
     // 走真实 HTTP：既验证响应头，也把字节落盘后**用 openpyxl 读回来**验证内容
     const dlPath = join(dir, 'download.xlsx')
+    dlPathForTz = dlPath
     const dl = await download(base3 + '/api/export?format=xlsx', dlPath)
     ok(dl.status === 200, 'GET /api/export?format=xlsx -> 200', String(dl.status))
     ok(/spreadsheetml\.sheet/.test(dl.headers['content-type'] || ''), 'Content-Type 是 xlsx',
@@ -409,8 +412,10 @@ async function main() {
       String(dl.bytes) + ' bytes')
 
     const dlMeta = await ctx3.table.sheetMeta(dlPath, '计划外事件')
-    ok(dlMeta.sheets.length === 5 && dlMeta.sheets.includes('计划外事件'),
-      '全量导出含 5 张表（比周报多出「计划外事件」）', JSON.stringify(dlMeta.sheets))
+    ok(dlMeta.visible_sheets.length === 5 && dlMeta.visible_sheets.includes('计划外事件'),
+      '全量导出含 5 张可见表（比周报多出「计划外事件」）', JSON.stringify(dlMeta.visible_sheets))
+    ok(dlMeta.hidden_sheets.includes('_meta') && dlMeta.hidden_sheets.includes('_epochs'),
+      '带隐藏元数据表（_meta 时区偏移 / _epochs 逐行绝对时刻）', JSON.stringify(dlMeta.hidden_sheets))
     ok(dlMeta.freeze_panes === 'A2', '「计划外事件」表头已冻结', String(dlMeta.freeze_panes))
     ok(dlMeta.value_types[0] === 'datetime', '「计划外事件」时间列是原生 datetime', dlMeta.value_types.join(','))
     const dlOverview = await ctx3.table.readSheet(dlPath, '概览')
@@ -479,8 +484,8 @@ async function main() {
     ok(wkInfo && wkInfo.scope === 'weekly' && wkInfo.sheets === 4,
       '响应头带回摘要（scope=weekly / 4 张表）', JSON.stringify(wkInfo))
     const wkMeta = await ctx3.table.sheetMeta(wkPath, '概览')
-    ok(wkMeta.sheets.length === 4 && !wkMeta.sheets.includes('计划外事件'),
-      '周报仍 4 张表（与全量的 5 张区分开）', JSON.stringify(wkMeta.sheets))
+    ok(wkMeta.visible_sheets.length === 4 && !wkMeta.visible_sheets.includes('计划外事件'),
+      '周报仍 4 张可见表（与全量的 5 张区分开）', JSON.stringify(wkMeta.visible_sheets))
     const wkOverview = await ctx3.table.readSheet(wkPath, '概览')
     ok(wkOverview.rows[1][1] === '最近 7 天', '概览统计区间跟随 days=7', JSON.stringify(wkOverview.rows[1]))
 
@@ -534,10 +539,93 @@ async function main() {
     ok(dl2.status === 200 && readFileSync(dl2Path).subarray(0, 2).toString() === 'PK',
       'SSE 客户端断开后仍能正常下载 xlsx（旧代码：500 / headers-sent）', String(dl2.status))
     ok((await json(get(base3 + '/api/state'))).status === 200, '宿主仍正常服务（异常没有扩散）')
+
+    console.log('\n=== 11i. P6：月报（含本月 vs 上月对比表）===')
+    const mon = await ctx3.report.month()
+    const monMeta = await ctx3.table.sheetMeta(mon.file)
+    ok(monMeta.visible_sheets.length === 6 && monMeta.visible_sheets.includes('对比'),
+      '月报可见表 = 概览/每日/会话/任务/计划外事件/对比', JSON.stringify(monMeta.visible_sheets))
+    ok(monMeta.hidden_sheets.includes('_meta') && monMeta.hidden_sheets.includes('_epochs'),
+      '月报同样带隐藏元数据表', JSON.stringify(monMeta.hidden_sheets))
+    const cmp = await ctx3.table.readSheet(mon.file, '对比')
+    ok(cmp.max_row === 7 && cmp.rows[0][1] === '本月' && cmp.rows[0][2] === '上月',
+      '对比表 = 表头 + 6 项指标（本月/上月/变化/变化率）', JSON.stringify(cmp.rows[0]))
+    const monScope = String((await ctx3.table.readSheet(mon.file, '概览')).rows[1][1])
+    ok(/^\d{4}-\d{2}（\d{4}-\d{2}-\d{2} ~ \d{4}-\d{2}-\d{2}）$/.test(monScope),
+      '概览标注了本月的起止日期', monScope)
+    const nowD = new Date()
+    const pm = new Date(nowD.getFullYear(), nowD.getMonth() - 1, 1)
+    const pmKey = `${pm.getFullYear()}-${String(pm.getMonth() + 1).padStart(2, '0')}`
+    const pmReport = await ctx3.report.month({ month: pmKey })
+    ok(existsSync(pmReport.file) && pmReport.file.includes(pmKey), '可指定月份导出（month=YYYY-MM）',
+      pmReport.file.split(/[\\/]/).pop())
+    const badMonth = await json(req(base3 + '/api/export?format=xlsx&scope=month&month=2026-13', 'GET'))
+    ok(badMonth.status === 400 && /month/.test(badMonth.data.error || ''), 'month=2026-13 -> 400 + 可读原因',
+      badMonth.status + ' ' + (badMonth.data.error || ''))
+
+    console.log('\n=== 11j. P6：自定义区间（含首尾两天，非法入参给 400）===')
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const dTo = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate())
+    const dFrom = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate() - 6)
+    const rngPath = join(dir, 'range-dl.xlsx')
+    const rng = await download(`${base3}/api/export?format=xlsx&scope=range&from=${iso(dFrom)}&to=${iso(dTo)}`, rngPath)
+    ok(rng.status === 200 && /filename="pomodmer-range-/.test(rng.headers['content-disposition'] || ''),
+      '区间导出可下载（文件名带 range）', String(rng.headers['content-disposition']))
+    ok((await ctx3.table.readSheet(rngPath, '每日')).max_row === 8, '区间 7 天 -> 「每日」= 表头 + 7 行',
+      String((await ctx3.table.readSheet(rngPath, '每日')).max_row))
+    const noFrom = await json(req(base3 + '/api/export?format=xlsx&scope=range', 'GET'))
+    ok(noFrom.status === 400 && /from/.test(noFrom.data.error || ''), '缺 from -> 400 + 可读原因',
+      noFrom.status + ' ' + (noFrom.data.error || ''))
+    const reversed = await json(req(base3 + `/api/export?format=xlsx&scope=range&from=${iso(dTo)}&to=${iso(dFrom)}`, 'GET'))
+    ok(reversed.status === 400 && /晚于/.test(reversed.data.error || ''), 'from > to -> 400 + 可读原因',
+      reversed.status + ' ' + (reversed.data.error || ''))
+    const badDay = await json(req(base3 + '/api/export?format=xlsx&scope=range&from=2026-02-30&to=2026-03-01', 'GET'))
+    ok(badDay.status === 400 && /合法日期/.test(badDay.data.error || ''), '2026-02-30 这类假日期 -> 400',
+      badDay.status + ' ' + (badDay.data.error || ''))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }
   await stopHost()
+
+  console.log('\n=== 11k. P6：跨时区回灌必须逐毫秒相等（导出端 TZ ≠ 导入端 TZ）===')
+  // 做法：上面导出的 dlPath（上海时区产出，带 _meta/_epochs）→ 切到 UTC → 灌进一个**空库**。
+  // 空库很关键：否则会被"去重跳过"掩盖，看不出时刻到底有没有漂移。
+  const tzStore = join(dir, 'store-tz.json')
+  const tzCfg = join(dir, 'cordis.tz.json')
+  writeFileSync(tzCfg, JSON.stringify({
+    entries: [
+      { id: 'store', name: './src/plugins/store.mjs', config: { file: tzStore } },
+      { id: 'timer', name: './src/plugins/timer.mjs' },
+      { id: 'http', name: './src/plugins/http.mjs', config: { host: '127.0.0.1', port: 0, open: false } },
+      { id: 'table', name: './src/plugins/table.mjs' },
+      { id: 'report', name: './src/plugins/report.mjs', config: { outDir: dir.replace(/\\/g, '/') } },
+    ],
+  }, null, 2))
+  const tzBackup = process.env.TZ
+  process.env.TZ = 'UTC'
+  const tzHost = await bootHost({ config: tzCfg })
+  const tzTookEffect = new Date(Date.parse('2026-06-16T00:00:00')).getUTCHours() === 0
+  // 期望值直接取自导出文件的隐藏 _epochs 表（那就是导出时的绝对时刻），逐毫秒比对
+  const epochRows = dlPathForTz
+    ? ((await tzHost.table.readSheet(dlPathForTz, '_epochs')).rows || []).slice(1)
+    : []
+  const wantEpochs = epochRows
+    .filter((r) => String(r[0]) === '会话')
+    .map((r) => Number(r[2]))
+    .sort((a, b) => a - b)
+  const tzApply = dlPathForTz ? await tzHost.report.importXlsx(dlPathForTz, { mode: 'apply' }) : { sessions: { add: 0, skip: 0 } }
+  const gotEpochs = tzHost.store.sessions.map((s) => s.startAt).sort((a, b) => a - b)
+  await stopHost()
+  if (tzBackup === undefined) delete process.env.TZ
+  else process.env.TZ = tzBackup
+  console.log('  [info] 导入端 TZ=UTC 生效=%s | 导入结果 %s | 期望 %d 条 / 落库 %d 条',
+    tzTookEffect, JSON.stringify(tzApply.sessions), wantEpochs.length, gotEpochs.length)
+  ok(tzTookEffect, '运行时切换 TZ 确实生效（否则这条断言没有意义）', String(tzTookEffect))
+  ok(wantEpochs.length > 0 && tzApply.sessions.add === wantEpochs.length,
+    '空库导入：把导出里的会话全量写入', JSON.stringify(tzApply.sessions))
+  ok(JSON.stringify(gotEpochs) === JSON.stringify(wantEpochs),
+    '跨时区导入后**逐毫秒**等于导出时的绝对时刻（旧版会整体平移一个时差）',
+    JSON.stringify(wantEpochs.slice(0, 3)) + ' vs ' + JSON.stringify(gotEpochs.slice(0, 3)))
 
   console.log('\n=== 12. P2/P3 资产自检 ===')
   const appjsSrc = readFileSync('web/app.js', 'utf8')

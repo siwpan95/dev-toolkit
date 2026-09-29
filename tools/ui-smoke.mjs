@@ -206,7 +206,23 @@ if (avail === true) {
   console.log('  [info] 本机没启用表格能力，跳过回灌的界面验收')
 }
 
-// 6) 全程没有前端 JS 报错
+// 6) 月报与自定义区间按钮（P6 新增入口）
+await evaluate(`document.querySelector('#btnMonth').click()`)
+await sleep(2500)
+const monHint = await evaluate(`document.querySelector('#ioHint').textContent`)
+ok(/已导出 pomodmer-month-/.test(monHint), '点「导出月报 xlsx」→ 完成并回显文件名', monHint)
+
+// 区间为空时先自动填好最近 7 天（确认后再点一次才导出）—— 避免"点了没反应"的困惑
+await evaluate(`document.querySelector('#btnRange').click()`)
+await sleep(400)
+const filled = await evaluate(`document.querySelector('#rangeFrom').value + '~' + document.querySelector('#rangeTo').value`)
+ok(/^\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2}$/.test(filled), '区间为空时自动填好最近 7 天', filled)
+await evaluate(`document.querySelector('#btnRange').click()`)
+await sleep(2500)
+const rangeHint = await evaluate(`document.querySelector('#ioHint').textContent`)
+ok(/已导出 pomodmer-range-/.test(rangeHint), '再点一次 → 区间报表完成并回显', rangeHint)
+
+// 7) 全程没有前端 JS 报错
 ok(consoleErrors.length === 0, '页面无 JS 异常/console.error', consoleErrors.slice(0, 2).join(' | '))
 
 await stopHost()

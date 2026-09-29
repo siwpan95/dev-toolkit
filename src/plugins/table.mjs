@@ -238,8 +238,9 @@ export class TableService extends Service {
   createWorkbook(path, sheet) {
     return this.bridge.call('create_workbook', { path, sheet })
   }
-  addSheet(path, name) {
-    return this.bridge.call('add_sheet', { path, name })
+  // opts.hidden：建隐藏表（给机器读的元数据表用，例如导出时记下的时区偏移与逐行 epoch）
+  addSheet(path, name, opts = {}) {
+    return this.bridge.call('add_sheet', { path, name, ...opts })
   }
   // opts.colTypes：按列声明类型（'text' | 'number' | 'datetime' | 'date' | 'time'），
   // 让 worker 把 ISO 字符串还原成 Excel 原生类型 —— 日期要能排序/筛选/算日期就必须走这条。

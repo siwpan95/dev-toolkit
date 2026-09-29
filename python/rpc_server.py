@@ -308,6 +308,10 @@ def handle(method, params):
     if method == "add_sheet":
         wb = _get_wb(path)
         ws = wb.create_sheet(title=p.get("name", "Sheet"))
+        # hidden=True：给"机器读的元数据表"用（例如导出时记下的时区偏移与逐行 epoch），
+        # 人打开工作簿时不希望它占视线，但导入侧还要能读到。
+        if p.get("hidden"):
+            ws.sheet_state = "hidden"
         return {"ok": True, "sheets": wb.sheetnames}
 
     if method == "write_rows":
@@ -397,6 +401,10 @@ def handle(method, params):
         return {
             "title": ws.title,
             "sheets": list(wb.sheetnames),
+            # 可见表 / 隐藏表分开报：导出时写的 _meta/_epochs 是给程序读的，
+            # "这份报表有几张表"这种判断必须基于可见表，否则加个元数据表就把断言全打偏。
+            "visible_sheets": [n for n in wb.sheetnames if wb[n].sheet_state == "visible"],
+            "hidden_sheets": [n for n in wb.sheetnames if wb[n].sheet_state != "visible"],
             "max_row": ws.max_row,
             "max_col": ws.max_column,
             "freeze_panes": ws.freeze_panes,
