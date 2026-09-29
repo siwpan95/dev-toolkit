@@ -367,8 +367,46 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 当成"存在"，导致根本没装 Python 的机器被提示成"装了 Python 但缺 openpyxl"，指错排查方向；
 现在 `anyBin` 只认确认存在的绝对路径。
 
-## 9. 附：本轮调研来源
+### 2026-09-29 · P1：让导出的 xlsx 在 Excel 里真正可用（实测通过）
 
+**优先级判断**（表格能力后续工作四选一）：先修"数据可用性"，而不是先加新出口。理由：
+① 现有周报把日期写成文本，Excel 里没法排序/筛选/做日期计算 —— 报表的"可分析"价值被削掉一半；
+② 探测时发现一个更严重的缺陷：**一个日期单元格就能弄死整个 Python worker**（见下），
+   而它是"从 Excel 导入"这类反向能力的前置条件。加新功能前先让现有链路站得住。
+
+| 交付 | 文件 | 说明 |
+|---|---|---|
+| 修 worker 崩溃 | `python/rpc_server.py` | `json.dumps` 原本在 `try` 之外：`read_sheet` 撞上 `datetime` 单元格 → `TypeError` 掀翻主循环 → **进程退出**，此后所有调用都是 `python worker exited`。现在响应序列化也在 `try` 内，并加 `_json_default`（datetime/date/time → ISO 串、timedelta → 秒、Decimal → float、bytes → base64） |
+| 真实类型写入 | `python/rpc_server.py` / `table.mjs` | `write_rows` 支持 `col_types`（`text`/`number`/`datetime`/`date`/`time`）：把宿主给的 ISO 串还原成 Excel 原生类型；解析失败原样写入，不为类型好看丢数据 |
+| 数字格式 / 冻结窗格 / 元信息 | 同上 | 新增 `set_number_format`（一次多段区域）、`freeze_panes`、`sheet_meta`（冻结窗格 + 数字格式 + 值类型，用于验证文件真实形态） |
+| 周报升级 | `src/plugins/report.mjs` | 日期/时间列改真实 datetime（本地时区，不用 `toISOString()` 免得差时区）、`yyyy-mm-dd` / `yyyy-mm-dd hh:mm` 数字格式、四张表全部冻结表头 |
+| 冒烟 | `src/_smoke_pom.mjs` | 新增 11b 共 8 条：日期是原生类型、数字格式正确、表头冻结、带日期的文件能读回、**读日期后 worker 仍存活**（崩溃回归） |
+
+**验证**：
+
+- 崩溃复现（改动前）：外部 xlsx 含一个 `datetime` 单元格 → `read_sheet` → worker `exit code=1`，连 `ping` 都不再响应。
+  改动后：返回 `"2026-09-29T09:00:00"`，随后 `ping` 正常。
+- 落盘文件由**独立 Python 进程**重新打开核对（不信宿主内存里的对象）：四张表 `freeze_panes=A2`，
+  「每日」`A2` 为真日期 + `yyyy-mm-dd`，「会话」时间列为 `yyyy-mm-dd hh:mm`。
+- `npm run smoke` → **ALL PASS**（EXIT=0）。
+
+**过程中修掉的两个自己写出来的 bug**（都靠断言抓到）：
+1. `ws["B10"]`（单格）返回的是 `Cell` 而非 tuple，`set_number_format` 直接迭代它 → `'Cell' object is not iterable`；
+   现在先归一成列表。
+2. `table.mjs` 把 JS 侧 `colTypes` 原样过桥，worker 读的是 `col_types` → 类型声明静默失效。
+   **同时发现自己的断言太弱**：文本日期也能匹配 ISO 正则，所以只测字符串形态会假绿 ——
+   改成查 `sheet_meta.value_types`。
+
+### 后续优先级（已定序，按序推进）
+
+| 顺序 | 工作 | 状态 |
+|---|---|---|
+| P1 | xlsx 数据可用性（真实日期/数字格式/冻结表头/worker 崩溃） | ✅ 本轮完成 |
+| P2 | 全量数据 xlsx 导出（复用同一层 `ctx.table`，与 JSON 备份互补） | 待做 |
+| P3 | Excel → 任务/会话导入（`readSheet` 反向；合并策略需先确认） | 待做（依赖 P1 的读回健壮性） |
+| P4 | 打包为可复用插件（三件套抽包） | 暂缓（缺第二个真实消费者） |
+
+## 9. 附：本轮调研来源
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）
 - Pomotroid（开源番茄钟，Vue+Electron，v1.4.0）：pomotroid.org、GitCode/AtomGit 项目镜像与二次开发文档
 - JS 计时精度与后台节流：dev.to《Why setInterval Drifts and How to Fix It》、positioniseverything《Creating Accurate Timers in JavaScript》、xjavascript 精准计时、ufcn 后台标签页限频处理

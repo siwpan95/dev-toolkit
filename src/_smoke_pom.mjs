@@ -288,6 +288,31 @@ async function main() {
     ok(backDay.max_row === 8, '「每日」= 表头 + 7 天', String(backDay.max_row))
     const backSum = await ctx3.table.readSheet(rep.data.file, '概览')
     ok(backSum.max_row === 10, '「概览」= 表头 + 9 项指标', String(backSum.max_row))
+
+    console.log('\n=== 11b. xlsx 数据形态：真实日期 / 数字格式 / 冻结表头 / 坏单元格不再弄死 worker ===')
+    // 日期必须是 Excel 原生 datetime，而不是文本 —— 否则 Excel 里没法排序/筛选/做日期计算。
+    const metaDay = await ctx3.table.sheetMeta(rep.data.file, '每日')
+    // 内存里是 date，落盘后 openpyxl 重新加载会变成 datetime（Excel 里都是"真日期"）—— 两者都算过
+    ok(['date', 'datetime'].includes(metaDay.value_types[0]),
+      '「每日」日期列是原生日期类型（不是文本）', metaDay.value_types.join(','))
+    ok(metaDay.number_formats[0] === 'yyyy-mm-dd', '「每日」日期列带日期格式', metaDay.number_formats[0])
+    ok(metaDay.freeze_panes === 'A2', '「每日」表头已冻结', String(metaDay.freeze_panes))
+
+    const metaSess = await ctx3.table.sheetMeta(rep.data.file, '会话')
+    ok(metaSess.freeze_panes === 'A2', '「会话」表头已冻结', String(metaSess.freeze_panes))
+    ok(metaSess.number_formats[0] === 'yyyy-mm-dd hh:mm', '「会话」时间列带时间格式', metaSess.number_formats[0])
+    // 必须查 value_types：文本日期同样能匹配 ISO 正则，只测字符串形态会假绿
+    ok(metaSess.value_types[0] === 'datetime' && metaSess.value_types[1] === 'datetime',
+      '「会话」开始/结束是原生 datetime（不是文本）', metaSess.value_types.join(','))
+
+    // 读回：datetime 必须以 ISO 串出现（worker 用 _json_default 兜住），且读完后 worker 还活着 ——
+    // 这条是回归测试：改动前 read_sheet 撞上日期会让 json.dumps 抛错并带走整个 worker 进程。
+    const sessBack = await ctx3.table.readSheet(rep.data.file, '会话')
+    const isoLike = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(v)
+    const firstSess = sessBack.rows.find((r) => isoLike(r[0]))
+    ok(!!firstSess, '带日期的 xlsx 能读回（ISO 串），不再崩 worker', JSON.stringify(sessBack.rows.slice(0, 2)))
+    const alive = await ctx3.table.ping()
+    ok(!!alive && !!alive.openpyxl, '读日期后 worker 仍存活（回归：旧版会整进程退出）', JSON.stringify(alive))
   } else {
     ok(false, '回读四张表（周报未产出，跳过回读并保留上方真实错误）')
   }

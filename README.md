@@ -76,10 +76,14 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 | 工作簿 | `createWorkbook(path, sheet)` | 新建工作簿并指定首个工作表名 |
 | 工作表 | `addSheet(path, name)` | 追加工作表 |
 | 写入 | `writeRows(path, sheet, startRow, startCol, rows)` | 批量写二维数组（空值写 `null` 即空单元格） |
+| 写入 | `writeRows(..., { colTypes })` | 按列声明类型 `'datetime'`/`'date'`/`'number'`/`'text'`：把 ISO 串还原成 Excel **原生**类型，日期才能排序/筛选/做日期计算 |
 | 写入 | `writeCell(path, sheet, row, col, value)` | 单格写 |
 | 样式 | `styleHeader(path, sheet, row, ncols, opts)` | 表头底色/加粗/居中/边框（`opts.fill` / `opts.font_color`） |
 | 样式 | `setColumnWidth(path, sheet, col, width)` | 列宽 |
-| 读取 | `readSheet(path, sheet)` | 读回 `{ rows, max_row, max_col }` |
+| 样式 | `setNumberFormat(path, sheet, items)` | 批量数字格式：`items: [{ range: 'A2:A8', format: 'yyyy-mm-dd' }]` |
+| 样式 | `freezePanes(path, sheet, cell)` | 冻结窗格（`'A2'` = 表头常驻） |
+| 读取 | `readSheet(path, sheet)` | 读回 `{ rows, max_row, max_col }`（日期以 ISO 串返回） |
+| 读取 | `sheetMeta(path, sheet, row)` | 冻结窗格 / 数字格式 / 值类型 —— 用来验证导出文件的**真实形态** |
 | 落盘 | `save(path)` / `close(path)` | 保存（`close` 顺带移出 worker 的内存缓存） |
 | 自检 | `ping()` | 返回 Python / openpyxl 版本 |
 
@@ -127,6 +131,10 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 - **两端必须同为 UTF-8**：Windows 中文环境里 Python 默认按 gbk/cp936 解 stdio，UTF-8 中文会先变乱码、
   再退化成孤立代理字符，一路潜伏到 openpyxl 落盘才以 `surrogates not allowed` 炸出来。
   桥侧注入 `PYTHONIOENCODING=utf-8`，worker 侧 `_force_utf8_stdio()` 兜底，两道都要。
+- **读回来的值必须能过 JSON，且响应序列化要在 try 内**：Excel 里的日期是 `datetime`、高精度数是
+  `Decimal`、二进制是 `bytes`，`json.dumps` 一个都不认。worker 用 `_json_default` 统一转成
+  ISO 串/数字/base64，并且把序列化也放进 `try` —— 否则**一个日期单元格就能让 `json.dumps` 抛错、
+  掀翻主循环带走整个 worker**，此后所有调用都变成 `python worker exited`（这个坑真实发生过，别改回去）。
 - **工作簿按 `path` 缓存在 Python 内存**：写完必须 `save`（或 `close`）才落盘；同一 path 复用同一份工作簿。
 
 ## 番茄工作法规则（落地实现）
@@ -155,8 +163,8 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 **P1**：任务清单（番茄归属，实际/预估对比）、统计面板（今日/连续天数/最近 7 天柱状图/
 12 周热力图/每任务进度条）、中断记录（内部/外部 + 计划外事件列表）、数据导出/导入 JSON。
 
-**P2**：周报 xlsx 导出（复用 Python OpenPyXL，四张表：概览/每日/会话/任务）、
-白噪音与棕噪音（Web Audio 实时合成）、迷你窗（独立小窗只显示倒计时）、
+**P2**：周报 xlsx 导出（复用 Python OpenPyXL，四张表：概览/每日/会话/任务；日期是 Excel 原生日期、
+带数字格式、表头冻结）、白噪音与棕噪音（Web Audio 实时合成）、迷你窗（独立小窗只显示倒计时）、
 Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
 
 **P3（可选）**：Electron 桌面壳 —— 托盘常驻、窗口置顶、`Ctrl+Alt+Space` 全局快捷键、

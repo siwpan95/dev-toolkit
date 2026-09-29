@@ -48,11 +48,21 @@ export class ReportService extends Service {
     mkdirSync(dirname(file), { recursive: true })
 
     const mins = (ms) => Math.round((ms || 0) / 60000)
-    const when = (ts) => (ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '')
+    // 本地时间的 ISO 串（不带时区），交给 worker 变成 Excel 原生 datetime。
+    // 不能用 toISOString()：那是 UTC，导出的表在 Excel 里会整体差几个时区。
+    const localIso = (ts) => {
+      if (!ts) return ''
+      const d = new Date(ts)
+      const p = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    }
+    const DATETIME_FMT = 'yyyy-mm-dd hh:mm'
+    const DATE_FMT = 'yyyy-mm-dd'
 
     // ---- 表 1：概览 ----
     await table.createWorkbook(file, '概览')
     await table.writeRows(file, '概览', 1, 1, [['指标', '值']])
+    // 第 2 列混了文本/数字/日期：类型声明只对"能解析的字符串"生效，其余原样写入
     await table.writeRows(file, '概览', 2, 1, [
       ['统计区间', `最近 ${days} 天`],
       ['完成番茄', stats.total.completed],
@@ -62,8 +72,9 @@ export class ReportService extends Service {
       ['今日专注(分钟)', mins(stats.today.focusMs)],
       ['今日中断', stats.today.interrupts],
       ['计划外事件', store.unplanned.length],
-      ['生成时间', when(Date.now())],
-    ])
+      ['生成时间', localIso(Date.now())],
+    ], { colTypes: ['text', 'datetime'] })
+    await table.setNumberFormat(file, '概览', [{ range: 'B10', format: DATETIME_FMT }])
     await table.styleHeader(file, '概览', 1, 2, { fill: 'FFE24B4A' })
     await table.setColumnWidth(file, '概览', 1, 20)
     await table.setColumnWidth(file, '概览', 2, 30)
@@ -72,7 +83,10 @@ export class ReportService extends Service {
     await table.addSheet(file, '每日')
     await table.writeRows(file, '每日', 1, 1, [['日期', '完成番茄', '作废', '专注(分钟)']])
     const dayRows = stats.recent.map((d) => [d.date, d.completed, d.abandoned, mins(d.focusMs)])
-    await table.writeRows(file, '每日', 2, 1, dayRows)
+    await table.writeRows(file, '每日', 2, 1, dayRows, { colTypes: ['date', 'number', 'number', 'number'] })
+    if (dayRows.length) {
+      await table.setNumberFormat(file, '每日', [{ range: `A2:A${dayRows.length + 1}`, format: DATE_FMT }])
+    }
     await table.styleHeader(file, '每日', 1, 4, { fill: 'FF4472C4' })
     await table.setColumnWidth(file, '每日', 1, 14)
     await table.setColumnWidth(file, '每日', 2, 12)
@@ -88,10 +102,18 @@ export class ReportService extends Service {
     }
     const TYPE = { focus: '专注', short: '短休息', long: '长休息' }
     const sessRows = sessions.map((s) => [
-      when(s.startAt), when(s.endAt), TYPE[s.type] || s.type,
+      localIso(s.startAt), localIso(s.endAt), TYPE[s.type] || s.type,
       mins(s.actualMs), s.completed ? '是' : '否', s.interrupts || 0, s.reason || '', titleOf(s.taskId),
     ])
-    await table.writeRows(file, '会话', 2, 1, sessRows)
+    await table.writeRows(file, '会话', 2, 1, sessRows, {
+      colTypes: ['datetime', 'datetime', 'text', 'number', 'text', 'number', 'text', 'text'],
+    })
+    if (sessRows.length) {
+      await table.setNumberFormat(file, '会话', [
+        { range: `A2:B${sessRows.length + 1}`, format: DATETIME_FMT },
+        { range: `D2:D${sessRows.length + 1}`, format: '0' },
+      ])
+    }
     await table.styleHeader(file, '会话', 1, 8, { fill: 'FF548235' })
     for (let c = 1; c <= 8; c++) await table.setColumnWidth(file, '会话', c, c <= 2 ? 20 : 12)
 
@@ -99,10 +121,16 @@ export class ReportService extends Service {
     await table.addSheet(file, '任务')
     await table.writeRows(file, '任务', 1, 1, [['任务', '预估番茄', '实际番茄', '已完成']])
     const taskRows = stats.byTask.map((t) => [t.title, t.estimate || 1, t.spent || 0, t.done ? '是' : '否'])
-    await table.writeRows(file, '任务', 2, 1, taskRows.length ? taskRows : [['（无任务）', 0, 0, '']])
+    await table.writeRows(file, '任务', 2, 1, taskRows.length ? taskRows : [['（无任务）', 0, 0, '']],
+      { colTypes: ['text', 'number', 'number', 'text'] })
     await table.styleHeader(file, '任务', 1, 4, { fill: 'FFBA7517' })
     await table.setColumnWidth(file, '任务', 1, 34)
     for (let c = 2; c <= 4; c++) await table.setColumnWidth(file, '任务', c, 12)
+
+    // 每张表都冻结表头：几十上百行会话明细往下翻时，没有表头等于看天书
+    for (const name of ['概览', '每日', '会话', '任务']) {
+      await table.freezePanes(file, name, 'A2')
+    }
 
     await table.save(file)
 

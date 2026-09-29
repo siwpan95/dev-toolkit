@@ -186,8 +186,14 @@ export class TableService extends Service {
   addSheet(path, name) {
     return this.bridge.call('add_sheet', { path, name })
   }
-  writeRows(path, sheet, startRow, startCol, rows) {
-    return this.bridge.call('write_rows', { path, sheet, start_row: startRow, start_col: startCol, rows })
+  // opts.colTypes：按列声明类型（'text' | 'number' | 'datetime' | 'date' | 'time'），
+  // 让 worker 把 ISO 字符串还原成 Excel 原生类型 —— 日期要能排序/筛选/算日期就必须走这条。
+  // 注意：JS 侧写 camelCase，过桥时统一翻成 worker 的 snake_case（协议那侧只有 snake_case）。
+  writeRows(path, sheet, startRow, startCol, rows, opts = {}) {
+    const { colTypes, ...rest } = opts
+    return this.bridge.call('write_rows', {
+      path, sheet, start_row: startRow, start_col: startCol, rows, col_types: colTypes, ...rest,
+    })
   }
   writeCell(path, sheet, row, col, value) {
     return this.bridge.call('write_cell', { path, sheet, row, col, value })
@@ -197,6 +203,17 @@ export class TableService extends Service {
   }
   setColumnWidth(path, sheet, col, width) {
     return this.bridge.call('set_column_width', { path, sheet, col, width })
+  }
+  // items: [{ range: 'A2:A8', format: 'yyyy-mm-dd' }, ...]
+  setNumberFormat(path, sheet, items) {
+    return this.bridge.call('set_number_format', { path, sheet, items })
+  }
+  freezePanes(path, sheet, cell) {
+    return this.bridge.call('freeze_panes', { path, sheet, cell })
+  }
+  // 读工作表元信息（冻结窗格 / 数字格式 / 值类型）：给"验证导出文件真实形态"用
+  sheetMeta(path, sheet, row) {
+    return this.bridge.call('sheet_meta', { path, sheet, row })
   }
   readSheet(path, sheet) {
     return this.bridge.call('read_sheet', { path, sheet })
