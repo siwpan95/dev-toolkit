@@ -510,6 +510,9 @@ async function main() {
   ok(htmlSrc.includes('btnMini') && htmlSrc.includes('cfgAmbient') && htmlSrc.includes('btnReport'),
     '页面含迷你窗 / 白噪音 / 周报入口')
   ok(existsSync('pomodmer.bat'), '自愈式启动器 pomodmer.bat 就位')
+  // 文档也是资产：完整能力说明被删/改名时说一声，别让它悄悄从仓库里消失
+  ok(existsSync('docs/CAPABILITIES.md') && readFileSync('docs/CAPABILITIES.md', 'utf8').includes('/api/import/xlsx'),
+    '完整能力说明 docs/CAPABILITIES.md 就位且覆盖回灌接口')
   ok(existsSync('src/core/toast.mjs'), 'Windows 原生通知模块就位（best-effort）')
   ok(existsSync('electron/main.cjs') && existsSync('electron/start.mjs')
     && existsSync('electron/make-icon.mjs') && existsSync('electron/icon.png'),

@@ -504,7 +504,27 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 
 **验证**：`npm run smoke` → **ALL PASS**（EXIT=0）。
 
-## 9. 附：本轮调研来源
+## 9. 下一阶段规划：导出面继续往下走（候选，按优先级）
+
+**背景**：表格能力 P1–P4 已全部完成（导出周报/全量 → 人改 → 回灌闭环打通，三件套有单一权威源与来源锁）。
+下面四个方向是"导出面继续往下走"的候选，按 **风险优先 → 低成本高价值 → 大改动** 排序，
+每条都写清"为什么值得做"和"验收看什么"，方便随时调整次序。
+
+| 顺序 | 工作 | 为什么排这个位置 | 主要改动面 | 验收要点 |
+|---|---|---|---|---|
+| **P5** | **压力与边界加固**：① `bridge.call()` 加超时 + 超时后**重启 worker**；② 大数据的导出耗时/内存基线（几千条会话）；③ 跨时区/DST 的日期渲染 | 唯一"保护已有功能"的一条：现在 worker 一旦卡住，所有 xlsx 请求**永久挂起**（UI 停在"正在生成…"，只能重启宿主）；而且表格能力已有 3 个用户可见入口，availability 风险被放大了 | `src/core/bridge.mjs`（超时/重启，**属三件套 → 需改权威源再同步**）、`src/plugins/table.mjs`、`src/plugins/report.mjs`（时区） | 注入一个卡死的 worker：调用在 N 秒后报错而不是永久挂起；错误后下一次调用能自动重启并成功；3000 条会话导出耗时与内存有实测数字；`TZ=` 不同时区下导出的日期与本地一致 |
+| **P6** | **月度 / 自定义区间报表**：`scope=month`、`scope=range&from=&to=`，以及"本月 vs 上月"对比表 | 复用现有 `_export()` 建表逻辑，改动小、用户马上能感知（月度回顾是番茄钟最自然的第二个视角） | `src/plugins/report.mjs`、`src/plugins/http.mjs`（scope 扩展）、`web/app.js` | 区间边界（含首尾日、跨月、空区间）都有断言；对比表数值与 `/api/stats` 一致；`days`/`from`/`to` 非法输入给 400 而不是静默取默认 |
+| **P7** | **CSV / TSV 出口**：`format=csv&sheet=会话`（给 pandas / grep / Excel 导入用） | 便宜且**不依赖 Python**：没装 openpyxl 的机器也能导出原始数据；同时给出"轻量出口"这一条独立路径 | `src/plugins/http.mjs`（新 format 分支）、`web/app.js`（多一个按钮/下拉） | CSV 转义正确（逗号/引号/换行/中文）；无 Python 环境下仍可用；与 xlsx 同名表的数据一致（同一份行数据来源） |
+| **P8** | **报表里嵌图表**：openpyxl BarChart/LineChart（趋势、每日对比），让 xlsx 自带图 | 价值最高但改动最大：要给三件套加 `add_chart` 等新方法 → 改权威源 → 同步 → 两个仓库都要回归；且会扩大与另一个消费者共享的 API 面 | `cordis-table-app`（权威源：worker + table.mjs）、`tools/table-kit.lock.json`（同步）、`src/plugins/report.mjs` | 新方法在两个仓库的测试里都有断言；同步后 `check:kit` 一致；生成的 xlsx 用 openpyxl 读回能查到 chart 对象；图表在 Excel/WPS 打开无警告 |
+
+**同时明确"暂不做"的**（避免越做越散）：
+- 回灌的**列映射配置界面**：先把"只认本应用表头"这条限制留着（P3 已把它写进文档），等真有外部表接入需求再做；
+- **删除语义的回灌**（Excel 删行 → 库里也删）：与"永不删历史"的设计取向冲突，除非改成显式两阶段确认；
+- **多用户 / 服务端部署**：本项目定位是"跑在本机的个人工具"，只监听回环地址；要联网先过鉴权与多实例数据锁这两关。
+
+---
+
+## 10. 附：本轮调研来源
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）
 - Pomotroid（开源番茄钟，Vue+Electron，v1.4.0）：pomotroid.org、GitCode/AtomGit 项目镜像与二次开发文档
 - JS 计时精度与后台节流：dev.to《Why setInterval Drifts and How to Fix It》、positioniseverything《Creating Accurate Timers in JavaScript》、xjavascript 精准计时、ufcn 后台标签页限频处理

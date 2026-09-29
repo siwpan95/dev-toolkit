@@ -3,8 +3,9 @@
 仓库：<https://gitee.com/siwpan/pomodmer>（公开，MIT）
 
 > 由 **cordis-table-app v1.0.0** 改造（2026-09-29 回滚到 v1.0.0 后转向番茄钟）。
-> 表格能力（Python + OpenPyXL）保留为**可选插件**，不再默认拉起。
-> 规划与执行记录见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。
+> 表格能力（Python + OpenPyXL）保留为**可选插件**，启动时自动探测启用。
+> 规划与执行记录见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)；
+> **完整能力说明（API 全表 / 数据模型 / 24 个表格方法 / 已知限制）见 [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md)**。
 
 一个跑在本机的番茄钟：**计时权威在 Node 服务端，浏览器只负责渲染**。
 刷新页面、切到后台、关掉标签页都不会让计时出错；进程被强杀重启后也不会"凭空补时"。
@@ -237,6 +238,9 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 
 > 路由顺序坑：`/api/tasks/current` 必须排在 `/api/tasks/:id` 之前，否则会被当成 `id='current'` 的任务。
 
+> 上面是速查表；每个接口的字段、响应头与错误语义，以及**已知限制清单**（例如
+> `bridge.call()` 目前没有超时）见 [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md)。
+
 ## 数据
 
 `data/store.json`（已 gitignore，属个人专注记录）：
@@ -257,7 +261,9 @@ npm run check:kit    # 体检：锁 ↔ 本地（权威源在场时再比对源�
 
 ```
 pomodmer/
-├─ LICENSE / README.md / docs/POMODORO-PLAN.md
+├─ LICENSE / README.md / docs/
+│  ├─ CAPABILITIES.md       完整能力说明（API 全表 / 数据模型 / 表格 24 方法 / 已知限制）
+│  └─ POMODORO-PLAN.md      规划、决策与执行记录（含下一阶段候选 P5–P8）
 ├─ cordis.json              插件清单（默认：store + timer + http）
 ├─ cordis.table.json        插件清单（可选：仅 table，xlsx 能力）
 ├─ cordis.with-xlsx.json    插件清单（可选：番茄钟 + table + report，启用周报）
@@ -300,9 +306,19 @@ pomodmer/
 
 ## 路线图
 
+**功能路线（P0–P3，全部完成）**：
+
 - **P0（已完成，tag v2.0.0）**：Cordis 宿主 + store/timer/http 三插件 + 本地 Web UI + 端到端冒烟。
 - **P1（已完成，tag v2.1.0）**：任务清单 + 番茄归属、统计与热力图、中断记录、亮/暗主题、快捷键、导入导出。
 - **P2（已完成，tag v2.2.0）**：周报 xlsx（复用 ctx.table）、白噪音/棕噪音、迷你窗、原生通知、`pomodmer.bat` 启动器。
 - **P3（已完成，tag v2.2.0）**：Electron 桌面壳（托盘 / 置顶 / `Ctrl+Alt+Space` / 原生通知），仅 devDependencies，装不了也不影响浏览器模式。
+
+**表格能力专项（P1–P4，全部完成）**：xlsx 数据可用性（真实日期/数字格式/冻结表头 + 修 worker 崩溃）→
+三件套统一到权威源（来源锁 + 同步工具）→ 全量导出 → xlsx 回灌（预览 + 去重追加）→ 导出面做齐。
+逐步记录见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。
+
+**下一阶段候选（P5–P8，已立项未开工）**：压力与边界加固（worker 超时与重启、大数据基线、时区）→
+月度/自定义区间报表 → CSV/TSV 出口（不依赖 Python）→ 报表内嵌图表（需改权威源并同步）。
+排序依据、改动面与验收要点见规划文档 §9。
 
 详见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。
