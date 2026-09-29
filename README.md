@@ -19,6 +19,15 @@ npm run pom            # 启动番茄钟，自动打开 http://127.0.0.1:5173/
 npm run smoke          # 冒烟测试（内核 + 番茄钟端到端）
 ```
 
+桌面壳（可选，需要先 `npm install electron`）：
+
+```bash
+npm run electron       # Electron 桌面版：托盘 / 置顶 / Ctrl+Alt+Space 全局快捷键 / 原生通知
+```
+
+Windows 双击即用：`pomodmer.bat`（依赖缺失会自动 `npm install`）。
+带 xlsx 周报能力启动：`POMODMER_CONFIG=cordis.with-xlsx.json npm run pom`（需要 Python + openpyxl）。
+
 启动参数：
 
 ```bash
@@ -38,6 +47,8 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
   ├─ ctx.timer    src/plugins/timer.mjs     番茄钟状态机 + 权威计时
   └─ ctx.http     src/plugins/http.mjs      node:http 静态托管 + REST + SSE
   （可选）ctx.table  src/plugins/table.mjs ──JSON-RPC stdio──▶ python/rpc_server.py（OpenPyXL）
+  （可选）ctx.report src/plugins/report.mjs  周报 xlsx（依赖 ctx.table）
+  （可选）Electron 壳  electron/main.cjs ──spawn──▶ 上面的宿主，BrowserWindow 加载同一个 web/
 ```
 
 - `cordis.json` 是插件清单（声明式入口）；`cordis.table.json` 只挂表格插件（xlsx 能力按需启用）。
@@ -69,6 +80,13 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 **P1**：任务清单（番茄归属，实际/预估对比）、统计面板（今日/连续天数/最近 7 天柱状图/
 12 周热力图/每任务进度条）、中断记录（内部/外部 + 计划外事件列表）、数据导出/导入 JSON。
 
+**P2**：周报 xlsx 导出（复用 Python OpenPyXL，四张表：概览/每日/会话/任务）、
+白噪音与棕噪音（Web Audio 实时合成）、迷你窗（独立小窗只显示倒计时）、
+Windows 原生气泡通知（best-effort）、`pomodmer.bat` 自愈式启动器。
+
+**P3（可选）**：Electron 桌面壳 —— 托盘常驻、窗口置顶、`Ctrl+Alt+Space` 全局快捷键、
+原生阶段通知；装不了 Electron 也不影响浏览器模式。
+
 ## HTTP API
 
 | 方法 | 路径 | 说明 |
@@ -84,6 +102,7 @@ Cordis 宿主（Node.js 22，零新增 npm 依赖）
 | GET | `/api/stats?days=7&weeks=12` | 统计：today / streak / recent / heat / byTask / total |
 | GET / POST | `/api/unplanned` | 计划外事件列表 / 记录（`kind`: internal\|external） |
 | DELETE | `/api/unplanned/:id` | 删除一条中断记录 |
+| GET / POST | `/api/report` | 周报能力探测 / 生成 xlsx（未启用时 GET 给提示、POST 返回 501） |
 | GET | `/api/export` | 导出全部数据（JSON 附件） |
 | POST | `/api/import` | 导入数据（校验失败返回 400；导入后停在暂停态） |
 
@@ -112,6 +131,9 @@ pomodmer/
 ├─ LICENSE / README.md / docs/POMODORO-PLAN.md
 ├─ cordis.json              插件清单（默认：store + timer + http）
 ├─ cordis.table.json        插件清单（可选：仅 table，xlsx 能力）
+├─ cordis.with-xlsx.json    插件清单（可选：番茄钟 + table + report，启用周报）
+├─ pomodmer.bat             自愈式启动器（Windows 双击即用）
+├─ electron/                main.cjs 主进程 / start.mjs 启动器 / make-icon.mjs + icon.png
 ├─ web/                     index.html / app.js / style.css（零框架前端）
 ├─ python/rpc_server.py     OpenPyXL 工作者（可选能力用）
 └─ src/
@@ -135,12 +157,22 @@ pomodmer/
 - Cordis **没有 `ctx.stop()`**；根 fiber 的 dispose 语义是"重启"。正确关停 =
   逆序 `await entry.fiber.dispose()` 顶层入口（`boot.mjs` 的 `stopHost` 已封装）。
 - 服务间只通过 `ctx.<key>` 查找，不 import 具体实现；依赖用 `static inject = [...]` 声明。
+  **可选依赖不要写进 `inject`**（否则插件永远 PENDING），用 `ctx.get('table')` 在用的时候取。
+
+## Electron 踩坑（实测）
+
+- 环境里若有 `ELECTRON_RUN_AS_NODE=1`，`electron.exe` 会退化成纯 Node：
+  `require('electron')` 返回的是**二进制路径字符串**，症状是 `app.whenReady()` 报 undefined。
+  该变量在启动前就被读取，main 进程里改来不及 → 用 `electron/start.mjs` 在 spawn 前删掉它。
+- Electron 主进程**不支持** `import { app } from 'electron'` 的命名导出（44.4.5 实测），
+  本项目 `package.json` 是 `type: module`，所以主进程写成 `main.cjs`（CommonJS）。
+- 国内安装必须配镜像：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（约 100MB）。
 
 ## 路线图
 
 - **P0（已完成，tag v2.0.0）**：Cordis 宿主 + store/timer/http 三插件 + 本地 Web UI + 端到端冒烟。
 - **P1（已完成，tag v2.1.0）**：任务清单 + 番茄归属、统计与热力图、中断记录、亮/暗主题、快捷键、导入导出。
-- **P2**：周报 xlsx 导出（复用 ctx.table）、白噪音、迷你窗、单文件分发。
-- **P3（可选）**：Electron 桌面壳（托盘 / 置顶 / 全局快捷键），仅 devDependencies，失败不影响主功能。
+- **P2（已完成，tag v2.2.0）**：周报 xlsx（复用 ctx.table）、白噪音/棕噪音、迷你窗、原生通知、`pomodmer.bat` 启动器。
+- **P3（已完成，tag v2.2.0）**：Electron 桌面壳（托盘 / 置顶 / `Ctrl+Alt+Space` / 原生通知），仅 devDependencies，装不了也不影响浏览器模式。
 
 详见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。

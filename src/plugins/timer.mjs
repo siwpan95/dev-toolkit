@@ -10,6 +10,7 @@
 import { Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
+import toast from '../core/toast.mjs'
 
 const PHASE_LABEL = { idle: '待开始', focus: '专注', short: '短休息', long: '长休息' }
 const DEFAULT_SUSPEND_GAP_MS = 10_000
@@ -163,7 +164,7 @@ export class TimerService extends Service {
   }
 
   setSettings(patch = {}) {
-    const allow = ['focusMs', 'shortMs', 'longMs', 'longEvery', 'autoStartBreak', 'autoStartFocus', 'sound', 'tick', 'notify', 'theme']
+    const allow = ['focusMs', 'shortMs', 'longMs', 'longEvery', 'autoStartBreak', 'autoStartFocus', 'sound', 'tick', 'notify', 'theme', 'nativeToast', 'ambient']
     this.store.update((d) => {
       for (const k of Object.keys(patch)) {
         if (!allow.includes(k)) continue
@@ -415,6 +416,11 @@ export class TimerService extends Service {
       next = (round > 0 && round % s.longEvery === 0) ? 'long' : 'short'
     }
     const auto = next === 'focus' ? s.autoStartFocus : s.autoStartBreak
+    // P2：Windows 原生气泡通知（best-effort，失败不影响主流程）
+    if (s.nativeToast) {
+      toast('Pomodmer · ' + (PHASE_LABEL[from] || from) + '结束',
+        next === 'focus' ? '该专注了' : '休息一下：' + (PHASE_LABEL[next] || next))
+    }
     if (auto) {
       this._emit('pomodoro/phase', { type: 'end', phase: from, next, completed: lastCompleted })
       return this._begin(next, rt.currentTaskId)

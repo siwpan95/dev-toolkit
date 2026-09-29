@@ -200,6 +200,26 @@ export class HttpService extends Service {
       }
     }
 
+    // ---- P2：周报导出（可选能力，依赖 ctx.table -> Python OpenPyXL）----
+    if (path === '/api/report') {
+      const report = this.ctx.get('report')
+      if (req.method === 'GET') {
+        return json(200, { available: !!report, hint: report ? null : '未启用 xlsx 报表插件（POMODMER_CONFIG=cordis.with-xlsx.json）' })
+      }
+      if (req.method === 'POST') {
+        if (!report) return json(501, { error: '未启用 xlsx 报表插件：用 POMODMER_CONFIG=cordis.with-xlsx.json 启动（需要 Python + openpyxl）' })
+        const body = await this._body(req)
+        const days = Math.min(Math.max(Number(body && body.days) || 7, 1), 60)
+        try {
+          const out = await report.weekly({ days })
+          this._broadcast('report', { file: out.file })
+          return json(200, out)
+        } catch (e) {
+          return json(500, { error: '周报生成失败: ' + e.message })
+        }
+      }
+    }
+
     return json(404, { error: '未找到: ' + path })
   }
 

@@ -307,6 +307,25 @@ body {
   font-size: 13px;
 }
 
+.sel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sel select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
 .hint { margin-left: 8px; color: var(--teal); font-size: 12px; }
 .hint.err { color: var(--accent); }
 .hint-block { color: var(--muted); font-size: 12px; margin: 8px 0 0; }

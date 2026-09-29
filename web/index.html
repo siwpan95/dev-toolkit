@@ -35,6 +35,7 @@
     <button class="btn" id="btnReset">重置</button>
     <button class="btn" id="btnSkip">跳过</button>
     <button class="btn danger" id="btnVoid">作废</button>
+    <button class="btn" id="btnMini" title="弹出一个只显示倒计时的独立小窗">迷你窗</button>
   </section>
 
   <section class="stats">
@@ -67,6 +68,11 @@
     </div>
     <div class="chart-title">任务番茄数（实际 / 预估）</div>
     <ul class="bar-list" id="taskBars"></ul>
+    <div class="row">
+      <button class="btn small" id="btnReport">导出周报 xlsx</button>
+      <span class="hint" id="reportHint"></span>
+    </div>
+    <p class="hint-block" id="reportNote"></p>
   </details>
 
   <details class="panel">
@@ -95,6 +101,16 @@
       <label><input type="checkbox" id="cfgSound"> 提示音</label>
       <label><input type="checkbox" id="cfgTick"> 每秒滴答声</label>
       <label><input type="checkbox" id="cfgNotify"> 桌面通知</label>
+    </div>
+    <label class="sel">白噪音
+      <select id="cfgAmbient">
+        <option value="off">关闭</option>
+        <option value="white">白噪音</option>
+        <option value="brown">棕噪音（低沉）</option>
+      </select>
+    </label>
+    <div class="checks">
+      <label><input type="checkbox" id="cfgToast"> Windows 原生气泡通知（实验性，借 PowerShell）</label>
     </div>
     <button class="btn small" id="btnSave">保存设置</button>
     <span class="hint" id="saveHint"></span>

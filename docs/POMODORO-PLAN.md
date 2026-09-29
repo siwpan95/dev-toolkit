@@ -312,6 +312,27 @@ Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE�
 1. 路由顺序 —— `/api/tasks/:id` 前缀分支吃掉了 `/api/tasks/current`（表现为"选当前任务无效"）。
 2. `StoreService` 漏了 `get unplanned()` —— `ctx.store.unplanned` 为 undefined，列表接口 500。
 
+### 2026-09-29 08:2x–08:4x · P2 + P3 完成（实测通过）
+
+| 交付 | 说明 | 验证 |
+|---|---|---|
+| P2-1 周报 xlsx | `src/plugins/report.mjs`（ctx.report），复用 `ctx.table` → Python OpenPyXL；四张表 概览/每日/会话/任务 | 真实生成并**回读校验**：「每日」= 表头+7 天，「概览」= 表头+9 项 |
+| P2-2 白噪音 | Web Audio 实时合成白噪音/棕噪音（零音频资产），仅专注且计时中播放 | 静态自检 + 手工可听 |
+| P2-3 迷你窗 | 独立小窗只显示倒计时 + 开始/跳过（每 500ms 拉 `/api/state`） | 静态自检 |
+| P2-4 原生通知 | `src/core/toast.mjs` 借 PowerShell NotifyIcon 气泡；best-effort，失败不影响主功能 | 默认关闭，可开关 |
+| P2-5 启动器 | `pomodmer.bat`（ASCII-only，依赖缺失自动 `npm install`） | 文件就位 |
+| P3 Electron 壳 | `electron/main.cjs` + `start.mjs` + `make-icon.mjs`/`icon.png`；托盘/置顶/`Ctrl+Alt+Space`/原生阶段通知 | **实机跑通**：`[electron] 就绪：http://127.0.0.1:5173` |
+
+**冒烟**：`node src/_smoke_pom.mjs` → **ALL PASS**（EXIT=0），新增第 11 节（周报 xlsx 端到端，
+含 with-xlsx 清单启动 + 回读校验）与第 12 节（P2/P3 资产自检）。
+
+**修掉/绕过的三个坑**：
+1. Electron 44.4.5 主进程**不支持** `import { app } from 'electron'` 命名导出 → 主进程改写 `main.cjs`（CommonJS）。
+2. 本机环境带 `ELECTRON_RUN_AS_NODE=1` → electron.exe 退化成纯 Node（`require('electron')` 返回路径字符串，
+   `app.whenReady()` undefined）。该变量启动前就被读取，必须**在 spawn 子进程前删掉** → 新增 `electron/start.mjs`。
+3. Electron 二进制首次安装未落地（`node_modules/electron` 无 `dist/`）→ 显式跑
+   `ELECTRON_MIRROR=... node node_modules/electron/install.js` 补齐（158MB，npmmirror 可用）。
+
 ## 9. 附：本轮调研来源
 
 - 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）

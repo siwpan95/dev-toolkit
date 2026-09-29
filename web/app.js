@@ -18,6 +18,8 @@ const el = {
   intNote: $('intNote'), intIn: $('btnIntIn'), intOut: $('btnIntOut'),
   unplannedList: $('unplannedList'), unplannedEmpty: $('unplannedEmpty'),
   exportBtn: $('btnExport'), importBtn: $('btnImport'), fileImport: $('fileImport'), ioHint: $('ioHint'),
+  ambient: $('cfgAmbient'), toastChk: $('cfgToast'), mini: $('btnMini'),
+  reportBtn: $('btnReport'), reportHint: $('reportHint'), reportNote: $('reportNote'),
 }
 
 let state = null          // 最近一次服务端快照（runtime）
@@ -67,6 +69,81 @@ function chime(kind) {
 function tickSound() {
   if (!settings || !settings.tick) return
   beep(1200, 0.03, 0.05, 'square')
+}
+
+// ---------- P2：白噪音（Web Audio 实时生成，零音频资产）----------
+let noise = null
+
+function stopAmbient() {
+  if (!noise) return
+  try { noise.src.stop() } catch { /* ignore */ }
+  try { noise.src.disconnect() } catch { /* ignore */ }
+  noise = null
+}
+
+function startAmbient(kind) {
+  stopAmbient()
+  if (!kind || kind === 'off') return
+  const ctx = initAudio()
+  if (!ctx) return
+  if (ctx.state === 'suspended') ctx.resume()
+  const len = Math.floor(ctx.sampleRate * 2)
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate)
+  const data = buf.getChannelData(0)
+  let last = 0
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1
+    if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; data[i] = Math.max(-1, Math.min(1, last * 3.5)) }
+    else data[i] = w * 0.5
+  }
+  const src = ctx.createBufferSource()
+  src.buffer = buf
+  src.loop = true
+  const g = ctx.createGain()
+  g.gain.value = 0.05
+  src.connect(g)
+  g.connect(ctx.destination)
+  src.start()
+  noise = { src, g }
+}
+
+// 只在「专注阶段且正在计时」时播放，休息/暂停自动停
+function syncAmbient() {
+  const kind = settings && settings.ambient
+  const want = kind && kind !== 'off' && state && state.running && state.phase === 'focus'
+  if (want && (!noise || noise.kind !== kind)) { startAmbient(kind); if (noise) noise.kind = kind }
+  else if (!want && noise) stopAmbient()
+}
+
+// ---------- P2：迷你窗（独立小窗，只显示倒计时）----------
+let miniWin = null
+
+function openMini() {
+  if (miniWin && !miniWin.closed) { miniWin.focus(); return }
+  miniWin = window.open('', 'pomodmer-mini', 'width=320,height=190,menubar=no,toolbar=no,location=no,status=no')
+  if (!miniWin) { el.reportHint.textContent = '浏览器拦截了弹出窗口，请允许本站弹出窗口'; return }
+  miniWin.document.write(
+    '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>Pomodmer 迷你窗</title>' +
+    '<style>body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;background:#f6f6f4;color:#2c2c2a;font-family:system-ui,"Microsoft YaHei",sans-serif}' +
+    '#t{font-size:44px;font-variant-numeric:tabular-nums}#p{color:#6b6a65;font-size:12px}' +
+    '.row{margin-top:10px;display:flex;gap:8px}' +
+    'button{padding:6px 14px;border:1px solid #e3e2dd;border-radius:10px;background:#fff;cursor:pointer;font-size:13px}' +
+    '.pri{background:#e24b4a;border-color:#e24b4a;color:#fff}</style></head><body>' +
+    '<div id="t">--:--</div><div id="p">连接中…</div>' +
+    '<div class="row"><button class="pri" id="tg">开始</button><button id="sk">跳过</button></div>' +
+    '<script>const $=function(i){return document.getElementById(i)};' +
+    'function fmt(ms){var n=Math.max(0,Math.ceil(ms/1000));return String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0")}' +
+    'async function loop(){try{var r=await fetch("/api/state");var d=await r.json();var s=d.runtime;' +
+    'var rm=s.running&&s.endAt?Math.max(0,s.endAt-Date.now()):(s.remainingMs||0);' +
+    '$("t").textContent=fmt(rm);$("p").textContent=s.phaseLabel;document.title=fmt(rm)+" · "+s.phaseLabel;' +
+    '$("tg").textContent=s.running?"暂停":"继续"}catch(e){$("p").textContent="连接中断，重试中…"}' +
+    'setTimeout(loop,500)}' +
+    '$("tg").onclick=function(){fetch("/api/timer/toggle",{method:"POST"})};' +
+    '$("sk").onclick=function(){fetch("/api/timer/skip",{method:"POST"})};' +
+    'loop()<\/script></body></html>'
+  )
+  miniWin.document.close()
 }
 
 // ---------- 通知 ----------
@@ -251,6 +328,7 @@ function applyState(s) {
   state = s
   render()
   renderTasks()
+  syncAmbient()
 }
 
 async function getJson(path) {
@@ -302,7 +380,7 @@ async function loadUnplanned() {
 }
 
 function refreshAll() {
-  return Promise.all([loadState(), loadStats(), loadUnplanned()])
+  return Promise.all([loadState(), loadStats(), loadUnplanned(), loadReportAvailability()])
 }
 
 function fillSettings() {
@@ -316,6 +394,8 @@ function fillSettings() {
   el.sound.checked = !!settings.sound
   el.tick.checked = !!settings.tick
   el.notify.checked = !!settings.notify
+  el.toastChk.checked = !!settings.nativeToast
+  el.ambient.value = settings.ambient || 'off'
 }
 
 function connect() {
@@ -387,11 +467,48 @@ el.save.onclick = async () => {
     sound: el.sound.checked,
     tick: el.tick.checked,
     notify: el.notify.checked,
+    nativeToast: el.toastChk.checked,
+    ambient: el.ambient.value,
   })
   settings = d.settings
   applyState(d.runtime)
   el.hint.textContent = '已保存'
   setTimeout(() => { el.hint.textContent = '' }, 2000)
+}
+
+el.mini.onclick = () => { ensureAudio(); openMini() }
+
+el.reportBtn.onclick = async () => {
+  el.reportHint.className = 'hint'
+  el.reportHint.textContent = '生成中…'
+  try {
+    const res = await fetch('/api/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 7 }),
+    })
+    const d = await res.json()
+    if (res.ok) {
+      el.reportHint.textContent = `已生成 ${d.file}（${d.summary.completed} 个番茄 / ${d.sessions} 条会话 / ${d.sheets.length} 张表）`
+    } else {
+      el.reportHint.className = 'hint err'
+      el.reportHint.textContent = '失败：' + (d.error || res.status)
+    }
+  } catch (e) {
+    el.reportHint.className = 'hint err'
+    el.reportHint.textContent = '失败：' + e.message
+  }
+}
+
+async function loadReportAvailability() {
+  try {
+    const d = await getJson('/api/report')
+    if (!d.available) {
+      el.reportBtn.disabled = true
+      el.reportNote.textContent = '未启用 xlsx 报表能力：用 POMODMER_CONFIG=cordis.with-xlsx.json 启动（需要 Python + openpyxl）。'
+    } else {
+      el.reportBtn.disabled = false
+      el.reportNote.textContent = ''
+    }
+  } catch { /* ignore */ }
 }
 
 el.exportBtn.onclick = () => { window.location.href = '/api/export' }

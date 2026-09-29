@@ -256,6 +256,45 @@ async function main() {
     '退出期间到点的番茄不会"静默补时"成已完成', JSON.stringify(sess2.slice(-1)))
   await stopHost()
 
+  console.log('\n=== 11. P2：周报 xlsx（启用可选插件，复用 Python OpenPyXL）===')
+  const cfg2 = join(dir, 'cordis.xlsx.json')
+  writeFileSync(cfg2, JSON.stringify({
+    entries: [
+      { id: 'store', name: './src/plugins/store.mjs', config: { file: storeFile } },
+      { id: 'timer', name: './src/plugins/timer.mjs' },
+      { id: 'http', name: './src/plugins/http.mjs', config: { host: '127.0.0.1', port: 0, open: false } },
+      { id: 'table', name: './src/plugins/table.mjs' },
+      { id: 'report', name: './src/plugins/report.mjs', config: { outDir: dir.replace(/\\/g, '/') } },
+    ],
+  }, null, 2))
+  const ctx3 = await bootHost({ config: cfg2 })
+  const base3 = ctx3.http.url.replace(/\/$/, '')
+  ok(!!ctx3.report && !!ctx3.table, 'with-xlsx 清单下 ctx.table / ctx.report 均就绪')
+  const rep = await json(req(base3 + '/api/report', 'POST', { days: 7 }))
+  ok(rep.status === 200, '周报生成成功', rep.data && rep.data.error)
+  ok(rep.data && existsSync(rep.data.file), 'xlsx 落盘：' + (rep.data && rep.data.file))
+  ok(rep.data && rep.data.sheets.length === 4, '四张表：概览/每日/会话/任务', rep.data && String(rep.data.sheets))
+  const backDay = await ctx3.table.readSheet(rep.data.file, '每日')
+  ok(backDay.max_row === 8, '「每日」= 表头 + 7 天', String(backDay.max_row))
+  const backSum = await ctx3.table.readSheet(rep.data.file, '概览')
+  ok(backSum.max_row === 10, '「概览」= 表头 + 9 项指标', String(backSum.max_row))
+  await stopHost()
+
+  console.log('\n=== 12. P2/P3 资产自检 ===')
+  const appjsSrc = readFileSync('web/app.js', 'utf8')
+  ok(appjsSrc.includes('startAmbient') && appjsSrc.includes('brown'), '前端含白噪音实现（白噪音/棕噪音，实时合成）')
+  ok(appjsSrc.includes('openMini'), '前端含迷你窗实现')
+  const htmlSrc = readFileSync('web/index.html', 'utf8')
+  ok(htmlSrc.includes('btnMini') && htmlSrc.includes('cfgAmbient') && htmlSrc.includes('btnReport'),
+    '页面含迷你窗 / 白噪音 / 周报入口')
+  ok(existsSync('pomodmer.bat'), '自愈式启动器 pomodmer.bat 就位')
+  ok(existsSync('src/core/toast.mjs'), 'Windows 原生通知模块就位（best-effort）')
+  ok(existsSync('electron/main.cjs') && existsSync('electron/start.mjs')
+    && existsSync('electron/make-icon.mjs') && existsSync('electron/icon.png'),
+  'Electron 桌面壳：主进程 + 启动器 + 图标生成脚本 + 图标就位')
+  const electronBin = existsSync('node_modules/electron/dist/electron.exe') || existsSync('node_modules/electron/dist/electron')
+  console.log('  [info] Electron 运行时：' + (electronBin ? '已安装，可用 npm run electron' : '未安装（可选项，不影响主功能）'))
+
   console.log('\n=== 结果 ===')
   console.log(failed === 0 ? '  ALL PASS' : '  FAILED: ' + failed + ' 项')
   process.exit(failed === 0 ? 0 : 1)

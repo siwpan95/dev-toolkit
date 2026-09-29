@@ -1,0 +1,35 @@
+{
+  "entries": [
+    {
+      "id": "store",
+      "name": "./src/plugins/store.mjs",
+      "config": {
+        "file": "data/store.json"
+      }
+    },
+    {
+      "id": "timer",
+      "name": "./src/plugins/timer.mjs"
+    },
+    {
+      "id": "http",
+      "name": "./src/plugins/http.mjs",
+      "config": {
+        "host": "127.0.0.1",
+        "port": 5173,
+        "open": true
+      }
+    },
+    {
+      "id": "table",
+      "name": "./src/plugins/table.mjs"
+    },
+    {
+      "id": "report",
+      "name": "./src/plugins/report.mjs",
+      "config": {
+        "outDir": "output"
+      }
+    }
+  ]
+}

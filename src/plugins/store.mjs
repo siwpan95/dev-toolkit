@@ -20,7 +20,9 @@ export function defaultData() {
       autoStartFocus: false,    // 休息结束后自动开始下一个番茄
       sound: true,              // 提示音
       tick: false,              // 每秒滴答声
-      notify: true,             // 桌面通知
+      notify: true,             // 浏览器桌面通知
+      nativeToast: false,       // Windows 原生气泡通知（借 PowerShell，best-effort）
+      ambient: 'off',           // 白噪音：off | white | brown
       theme: 'light',           // light | dark
     },
     tasks: [],                  // { id, title, estimate, spent, done, createdAt }
