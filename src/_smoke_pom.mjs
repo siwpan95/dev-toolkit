@@ -585,6 +585,43 @@ async function main() {
     const pmReport = await ctx3.report.month({ month: pmKey })
     ok(existsSync(pmReport.file) && pmReport.file.includes(pmKey), '可指定月份导出（month=YYYY-MM）',
       pmReport.file.split(/[\\/]/).pop())
+
+    console.log('\n=== 11m. P8：报表内嵌图表（openpyxl 原生图表，不是贴图）===')
+    const chartMeta = await ctx3.table.sheetMeta(pmReport.file, '每日')
+    ok(chartMeta.charts.length === 2 && chartMeta.charts.includes('BarChart') && chartMeta.charts.includes('LineChart'),
+      '「每日」表里有柱状图 + 折线图各一个', JSON.stringify(chartMeta.charts))
+    // 关键：图表必须**写进文件**，而不是只挂在 worker 内存对象上
+    const pyBin = probeTableWorker(null, { timeoutMs: 2500, budgetMs: 4000 }).bin
+    const probe = spawnSync(pyBin, ['-c',
+      'import sys, openpyxl\n' +
+      'wb = openpyxl.load_workbook(sys.argv[1])\n' +
+      'ws = wb["每日"]\n' +
+      'print("charts=%d types=%s" % (len(ws._charts), ",".join(type(c).__name__ for c in ws._charts)))\n' +
+      'c0, c1 = ws._charts[0], ws._charts[1]\n' +
+      'print("bar_val=%s bar_cat=%s" % (c0.series[0].val.numRef.f, c0.series[0].cat.numRef.f))\n' +
+      'print("line_val=%s" % c1.series[0].val.numRef.f)\n',
+      pmReport.file], { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } })
+    const probeOut = (probe.stdout || '').trim()
+    console.log('  [info] 另一个进程读回：' + probeOut.split('\n').join(' | '))
+    ok(/charts=2/.test(probeOut) && /BarChart/.test(probeOut) && /LineChart/.test(probeOut),
+      '落盘文件里确实有这两个图表（换个进程读也一样）', probeOut)
+    // 图表不光要"存在"，还得指对数据：柱图 = 每日!B 列（完成番茄），折线 = 每日!D 列（专注分钟），
+    // 分类轴都指向 A 列（日期），且起止行一致 —— 指错了照样"有图"，但一点用没有。
+    const barVal = (/bar_val=(\S+)/.exec(probeOut) || [])[1] || ''
+    const barCat = (/bar_cat=(\S+)/.exec(probeOut) || [])[1] || ''
+    const lineVal = (/line_val=(\S+)/.exec(probeOut) || [])[1] || ''
+    const rangeOf = (s) => (/^(?:'?每日'?)!\$([A-Z]+)\$(\d+):\$([A-Z]+)\$(\d+)$/.exec(s) || [])
+    const [bv, bc, lv] = [rangeOf(barVal), rangeOf(barCat), rangeOf(lineVal)]
+    ok(bv[1] === 'B' && bc[1] === 'A' && lv[1] === 'D', '柱图取 B 列、折线取 D 列、分类轴取 A 列',
+      JSON.stringify([barVal, barCat, lineVal]))
+    ok(bv[2] === '2' && bv[4] === bc[4] && bv[4] === lv[4],
+      '三个引用都从第 2 行起、终止行一致（覆盖整段每日数据）', JSON.stringify([barVal, lineVal]))
+    // 图表不该影响"CSV 与 xlsx 同源"这条不变量：CSV 没有图表概念，但数据行必须仍一致。
+    // 注意两边必须取**同一个月**（pmKey），否则比的是两份不同报表 —— 第一版就踩了这个。
+    const dailyCsv = parseCsv(ctx3.csv.render({ sheet: '每日', scope: 'month', month: pmKey }).text.replace(/^\uFEFF/, ''))
+    const dailyXlsx = (await ctx3.table.readSheet(pmReport.file, '每日')).rows
+    ok(dailyCsv.length === dailyXlsx.length, `加了图表后「每日」(${pmKey}) 的 CSV 行数仍与 xlsx 一致`,
+      dailyCsv.length + ' vs ' + dailyXlsx.length)
     const badMonth = await json(req(base3 + '/api/export?format=xlsx&scope=month&month=2026-13', 'GET'))
     ok(badMonth.status === 400 && /month/.test(badMonth.data.error || ''), 'month=2026-13 -> 400 + 可读原因',
       badMonth.status + ' ' + (badMonth.data.error || ''))

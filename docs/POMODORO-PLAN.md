@@ -638,6 +638,32 @@ Node 22 自带全局 `WebSocket`，浏览器自带 CDP，用系统 Edge/Chrome �
 `[Service.init]() {` 时，少了分号会被 ASI 拼成 `['store','timer'][Service.init]()` —— 直接 SyntaxError。
 我顺手全仓库扫了一遍同类写法（类字段后紧跟以 `[` 开头的行），除这一处外没有别的地方。
 
+### 2026-09-29 · P8：报表内嵌图表（P5–P8 收官，实测通过）
+
+**做法**：给三件套加 `add_chart`（openpyxl 原生图表对象），报表的「每日」表右侧（F 列起）挂两张图 ——
+柱状图（每日完成番茄）+ 折线图（每日专注时长），引用同一张表的数据区。
+
+| 交付 | 位置 | 说明 |
+|---|---|---|
+| 图表能力 | 权威源 `cordis-table-app`（worker `add_chart` + `table.mjs` 的 `addChart`）+ `sheet_meta.charts` | 支持 col/bar/line/pie、标题、锚点、尺寸、轴标题、字面系列标题；**惰性导入** `openpyxl.chart`（核心路径不背这个依赖）；spec 用显式行列号而非 A1 字符串（解析带中文/空格的表名是经典坑） |
+| 报表嵌入 | `src/plugins/report.mjs` | 「每日」表数据行 > 1 时自动加两张图；共 4 条链路（周报/全量/月报/区间）都生效 |
+| 权威源验收 | `src/_smoke_chart.mjs`（13 条，并入 `npm test`） | 三种图 + 字面标题 + 未知类型报错 + `sheet_meta` 类名；**另起进程**用 openpyxl 打开落盘文件，断言图表数量/类型/系列数/**数据引用 B2:B6**/**分类轴 A2:A6**/锚点 |
+| 本仓库验收 | 冒烟第 11m 节（4 条） | 月报「每日」有 BarChart + LineChart；另起进程读回文件确认存在且引用 `$B$2:$B$32` / `$A$2:$A$32` / `$D$2:$D$32`（覆盖整段每日数据）；加了图表后 CSV 与 xlsx 行数仍一致 |
+
+**过程抓到的两个真问题**：
+
+1. **分类轴被静默丢弃**：`set_categories()` 在 openpyxl 里是"遍历现有 series 挂 cat"，我最初在
+   **加数据之前**调用它 → 横轴一片空白，而图表照样"存在"（数量、类型断言全绿）。
+   是"引用指对了吗"这条断言抓出来的 —— 只数图表个数根本发现不了。已改为加完系列再设分类轴，
+   并在权威源测试里专门加了 `cat=MISSING` 的反向检查。
+2. **探针读出的中文变乱码**：`spawnSync` 起 Python 复核文件时没带 `PYTHONIOENCODING=utf-8`，
+   表名以 GBK 写出再被按 UTF-8 解码 → 断言里 `每日` 匹配不上。与三件套的生产纪律一致地补上环境变量。
+
+**没验到的部分（如实说明）**：验收要点里写了"图表在 Excel/WPS 打开无警告"，本机**没有 Excel/WPS**，
+这条无法用程序验证。我实际验到的是：文件能被 openpyxl 正常 `load_workbook`（无损坏）、
+图表以标准 chart XML 落盘（数量/类型/系列/引用/锚点全部核对）。
+真机打开是否弹修复提示，需要你在 Excel/WPS 里点一下确认。
+
 ### 后续优先级（P1–P4 全部完成的收口表）
 
 > 本表的 P1–P4 指"表格能力专项"的编号，与 README 路线图的 P0–P3 无关；**当前计划见 §9（P5 → P6 → P7 → P8）**。
@@ -661,7 +687,7 @@ Node 22 自带全局 `WebSocket`，浏览器自带 CDP，用系统 Edge/Chrome �
 | **P5** | **压力与边界加固**：① `bridge.call()` 加超时 + 超时后**重启 worker**；② 大数据的导出耗时/内存基线（几千条会话）；③ 跨时区/DST 的日期渲染 | ✅ **已完成**（记录见 §8「P5：压力与边界加固」） | 唯一"保护已有功能"的一条：worker 卡住曾让所有 xlsx 请求**永久挂起**（UI 停在"正在生成…"，只能重启宿主） | 已改：`cordis-table-app`（权威源 bridge/table.mjs）→ 同步进 pomodmer；新增 `tools/bench-export.mjs` | 已验：卡死→超时报错不挂起；崩溃→下次调用自动拉起新 worker；500/3000 条耗时与内存有实测数字；同 TZ 往返 0 漂移、DST 跳变/回拨渲染正确 |
 | **P6** | **月度 / 自定义区间报表**：`scope=month`、`scope=range&from=&to=`，以及"本月 vs 上月"对比表（+ 跨时区回灌修复） | ✅ **已完成**（记录见 §8「P6」） | 复用现有 `_export()` 建表逻辑，改动小、用户马上能感知（月度回顾是番茄钟最自然的第二个视角） | 已改：`report.mjs`（`month`/`range`/`_aggregate` + `_meta`/`_epochs`）、`http.mjs`（scope 与 400 校验）、`web/`（月报与区间入口）、权威源 `add_sheet(hidden)`+`sheet_meta` | 已验：对比表/区间边界/非法入参 400；**跨时区导入逐毫秒相等**（含 DST 跳变与回拨时刻）；冒烟 144 条 + 界面 14 条全绿 |
 | **P7** | **CSV / TSV 出口**：`format=csv&sheet=会话`（给 pandas / grep / Excel 导入用） | ✅ **已完成**（记录见 §8「P7」） | 便宜且**不依赖 Python**：没装 openpyxl 的机器也能导出原始数据；同时给出"轻量出口"这一条独立路径 | 已改：新增 `src/core/view.mjs`（纯数据层）与 `src/plugins/csv.mjs`（默认加载），`report.mjs` 改为纯写入；三份清单加 csv | 已验：无 table/report 时 CSV 照常可用（xlsx 501）；RFC 4180 转义与 BOM 行为；**CSV 与同名 xlsx 五张表逐格一致**；冒烟 162 条 + 界面 16 条全绿 |
-| **P8** | **报表里嵌图表**：openpyxl BarChart/LineChart（趋势、每日对比），让 xlsx 自带图 | 待做 | 价值最高但改动最大：要给三件套加 `add_chart` 等新方法 → 改权威源 → 同步 → 两个仓库都要回归；且会扩大与另一个消费者共享的 API 面 | `cordis-table-app`（权威源：worker + table.mjs）、`tools/table-kit.lock.json`（同步）、`src/plugins/report.mjs` | 新方法在两个仓库的测试里都有断言；同步后 `check:kit` 一致；生成的 xlsx 用 openpyxl 读回能查到 chart 对象；图表在 Excel/WPS 打开无警告 |
+| **P8** | **报表里嵌图表**：openpyxl BarChart/LineChart（趋势、每日对比），让 xlsx 自带图 | ✅ **已完成**（记录见 §8「P8」） | 价值最高但改动最大：要给三件套加方法 → 改权威源 → 同步 → 两个仓库都回归 | 已改：权威源 worker `add_chart` + `table.mjs` + `sheet_meta.charts`；本仓库 report 在「每日」表嵌两张图 | 已验：权威源 13 条（含另起进程复核数据引用与分类轴）+ 本仓库 11m 4 条；**真机 Excel/WPS 打开未验**（本机没有这两个软件） |
 
 **同时明确"暂不做"的**（避免越做越散）：
 - 回灌的**列映射配置界面**：先把"只认本应用表头"这条限制留着（P3 已把它写进文档），等真有外部表接入需求再做；

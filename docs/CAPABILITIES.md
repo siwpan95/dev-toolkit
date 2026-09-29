@@ -171,7 +171,8 @@ pomodmer.bat                   # Windows 双击即用（缺依赖自动 npm inst
 | 写入 | `writeRows(…, { colTypes })`（`text`/`number`/`datetime`/`date`/`time`，把 ISO 串还原成 Excel 原生类型） `writeCell` `setCellText` |
 | 样式 | `styleHeader` `setColumnWidth` `setNumberFormat` `freezePanes` `setCellFill` `setBorders` `setComment` |
 | 结构 | `mergeCells` |
-| 读取 | `readSheet`（日期以 ISO 串返回） `sheetMeta`（冻结窗格 / 数字格式 / 值类型 / 合并区 / 批注 / **可见表与隐藏表清单**） |
+| 图表 | `addChart(path, sheet, { type: 'col'\|'bar'\|'line'\|'pie', title, anchor, data_sheet, height, width, x_title, y_title, cats: { col, min_row, max_row }, series: [{ col, min_row, max_row, title_from_data?, title? }] })` —— 写 openpyxl **原生图表对象**（不是贴图）；用显式行列号而不是 A1 字符串（解析带中文/空格的表名引用是经典坑） |
+| 读取 | `readSheet`（日期以 ISO 串返回） `sheetMeta`（冻结窗格 / 数字格式 / 值类型 / 合并区 / 批注 / **图表类名清单** / **可见表与隐藏表清单**） |
 | 地图/VTT（本项目未使用） | `readMap` `renderMapPng` `renderToken` `genDungeon` `exportDonjon` `importDonjon` |
 
 **单一权威源 + 来源锁**（防两个仓库再次静默分叉）：
@@ -218,16 +219,17 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 ## 10. 测试与验收
 
 - `npm run smoke` → 期望 **ALL PASS（EXIT=0）**：`src/_smoke.mjs`（Cordis 内核，6 项输出）+
-  `src/_smoke_pom.mjs`（**32 个测试节次 + 结果汇总，162 处 `ok(...)` 断言**），
+  `src/_smoke_pom.mjs`（**33 个测试节次 + 结果汇总，167 处 `ok(...)` 断言**），
   覆盖启动 → 状态 → 设置 → 计时流转 → 跳过/作废 → 任务 CRUD → 静态资源与路径穿越 →
   SSE → 任务归属 → 中断 CRUD → 统计 → 导出导入 → 主题 → 落盘与重启恢复 →
   周报 xlsx → xlsx 数据形态 → 联合套件能力 → 全量导出 → 回灌（预览/幂等/往返不翻倍）→
   导出面（scope/days）→ worker 超时与崩溃自愈 → SSE 断开后下载不被带崩 →
   月报与对比表 → 自定义区间与入参校验 → **跨时区回灌逐毫秒相等** →
-  **CSV 与同名 xlsx 逐格一致** → **CSV/TSV 无 Python 可用（含 RFC 4180 转义/BOM/slug）** →
+  **CSV 与同名 xlsx 逐格一致** → **CSV/TSV 无 Python 可用** → **图表落盘且引用正确** →
   资产自检（含文档存在性）→ 来源锁 → 自动启用决策。
-- 权威源 `cordis-table-app` 另有 `src/_smoke_bridge.mjs`（**12 条**，已并入它的 `npm test`）：
-  用"会按需装死的假 worker"确定性验证超时、重启、崩溃自愈与冷启动宽限。
+- 权威源 `cordis-table-app` 另有 `src/_smoke_bridge.mjs`（**12 条**）与 `src/_smoke_chart.mjs`（**12 条**），
+  均已并入它的 `npm test`：前者用"会按需装死的假 worker"验超时/重启/崩溃自愈/冷启动宽限，
+  后者**另起进程**用 openpyxl 打开落盘文件核对图表数量/类型/数据引用/分类轴/锚点。
 - `npm run smoke:ui` → 真实浏览器界面验收 **16 条**（详见 §11 第 9 条；含月报/区间/CSV/TSV 按钮）。
 - `npm run bench:export` → 导出耗时/内存基线（实测：3000 条会话 429ms / 107KB / RSS +11MB）。
 - 权威源 `cordis-table-app`：`npm test`（内核冒烟 + 地图演示 + 程序化生成 + DonJon 互通往返 600 格比对）。
@@ -246,6 +248,7 @@ npm run check:kit    # 体检：锁↔本地（权威源在场时再比对源）
 | 5 | 回灌只认本应用导出的表头名 | 外来自定义表头需先改列名（或后续加列映射配置） |
 | 6 | 回灌**不做删除** | Excel 里删掉的行不会从库里消失（有意为之，避免误删历史）；要清空请用 JSON 替换式导入 |
 | 7 | 回灌的 `plannedMs` 用 `actualMs` 兜底 | xlsx 没有"计划时长"列，故导入的会话"实际/计划"恒为 1:1 |
+| 7b | 报表里的图表是 openpyxl 写的标准 chart XML | 已验证：文件能被 openpyxl 正常加载、图表数量/类型/系列/数据引用/分类轴/锚点全部核对（权威源 13 条 + 冒烟 11m 4 条）。**未验证**：在 Excel/WPS 里打开是否弹"修复"提示 —— 本机没有这两个软件，需要人工点一次确认 |
 | 8 | 数据是单文件 JSON，无多实例锁 | 同时运行两个宿主指向同一 `data/store.json` 会互相覆盖 |
 | 9 | ~~无浏览器端点击级自动化测试~~ **已补（可选跑）** | `npm run smoke:ui` 用系统 Edge/Chrome + CDP（Node 22 内置 WebSocket，**零新增依赖**）驱动真实页面，11 条断言：首屏渲染、点「开始」后文案与倒计时都在动、按钮可用性与服务端探测一致、任务添加链路、CDP 直接塞 xlsx 走完回灌预览+确认、全程无 JS 异常。找不到浏览器时自动跳过 |
 

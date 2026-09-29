@@ -175,6 +175,23 @@ export class ReportService extends Service {
       } else if (sheet === '计划外事件' && rows.length > 1 && rows[1][0]) {
         await table.setNumberFormat(file, sheet, [{ range: `A2:A${rows.length}`, format: DATETIME_FMT }])
       }
+      // 图表：把趋势直接长在表里（openpyxl 原生图表对象，不是贴图）。
+      // 放在「每日」右侧（F 列起）：数据列是 A~D，不遮挡；行数少时也不挤在一起。
+      if (sheet === '每日' && rows.length > 2) {
+        const last = rows.length
+        await table.addChart(file, sheet, {
+          type: 'col', title: '每日完成番茄', anchor: 'F2', height: 7, width: 14,
+          x_title: '日期', y_title: '番茄数',
+          cats: { col: 1, min_row: 2, max_row: last },
+          series: [{ col: 2, min_row: 1, max_row: last, title_from_data: true }],
+        })
+        await table.addChart(file, sheet, {
+          type: 'line', title: '每日专注时长(分钟)', anchor: 'F18', height: 7, width: 14,
+          x_title: '日期', y_title: '分钟',
+          cats: { col: 1, min_row: 2, max_row: last },
+          series: [{ col: 4, min_row: 1, max_row: last, title_from_data: true }],
+        })
+      }
     }
 
     // ---- 隐藏表：给"回灌"用的机器元数据 ----

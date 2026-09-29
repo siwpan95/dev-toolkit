@@ -390,8 +390,67 @@ def handle(method, params):
         ws.freeze_panes = p.get("cell") or None
         return {"ok": True, "freeze_panes": ws.freeze_panes}
 
+    # 图表：把趋势/对比直接长在表里（openpyxl 原生图表对象，不是图片）。
+    # 参数用**显式行列号**而不是 A1 字符串：解析 "带空格或中文的表名!$B$2:$B$8" 是经典踩坑点，
+    # 而调用方（我们自己的 report）本来就按行列号写数据，直接给数字最不容易错。
+    #   { sheet, type: col|bar|line|pie, title, anchor: 'F2', data_sheet,
+    #     cats: { col, min_row, max_row },
+    #     series: [ { col, min_row, max_row, title_from_data?: bool, title?: str } ] }
+    if method == "add_chart":
+        wb = _get_wb(path)
+        ws = _sheet(wb, p.get("sheet"))
+        # 惰性导入：openpyxl.chart 只在真用图表时才引入，不让核心路径多背依赖
+        from openpyxl.chart import BarChart, LineChart, PieChart, Reference
+        from openpyxl.chart.series import SeriesLabel
+
+        kind = str(p.get("type") or "col").lower()
+        if kind in ("col", "bar"):
+            chart = BarChart()
+            chart.type = kind
+        elif kind == "line":
+            chart = LineChart()
+        elif kind == "pie":
+            chart = PieChart()
+        else:
+            raise ValueError("不支持的图表类型: " + kind + "（可用 col / bar / line / pie）")
+        if p.get("title"):
+            chart.title = p["title"]
+        if p.get("style"):
+            chart.style = int(p["style"])
+        if p.get("height"):
+            chart.height = float(p["height"])
+        if p.get("width"):
+            chart.width = float(p["width"])
+        if p.get("x_title"):
+            chart.x_axis.title = p["x_title"]
+        if p.get("y_title"):
+            chart.y_axis.title = p["y_title"]
+
+        dws = _sheet(wb, p.get("data_sheet") or p.get("sheet"))
+        for s in p.get("series") or []:
+            ref = Reference(
+                dws,
+                min_col=int(s["col"]), min_row=int(s["min_row"]),
+                max_col=int(s.get("col")), max_row=int(s["max_row"]),
+            )
+            chart.add_data(ref, titles_from_data=bool(s.get("title_from_data")))
+            # 没有表头单元格时允许给一个字面标题（SeriesLabel 的 v 就是字面字符串）
+            if not s.get("title_from_data") and s.get("title") and chart.series:
+                chart.series[-1].tx = SeriesLabel(v=str(s["title"]))
+        # 分类轴必须**在加完系列之后**设置：openpyxl 的 set_categories 是遍历现有 series 挂 cat 的，
+        # 先设后加系列 = 静默丢失（图表照样"存在"，但横轴一片空白）。踩过。
+        cats = p.get("cats")
+        if cats:
+            chart.set_categories(Reference(
+                dws,
+                min_col=int(cats["col"]), min_row=int(cats["min_row"]),
+                max_col=int(cats.get("col")), max_row=int(cats["max_row"]),
+            ))
+        ws.add_chart(chart, p.get("anchor") or "F2")
+        return {"ok": True, "charts": len(getattr(ws, "_charts", []))}
+
     # 工作表元信息：给宿主/测试一个"能验证文件真实形态"的读口
-    # （日期到底是真日期还是文本、表头冻没冻、单元格是什么格式、合并区与批注在不在 ——
+    # （日期到底是真日期还是文本、表头冻没冻、单元格是什么格式、合并区与批注在不在、图表有几个 ——
     #  光看 read_sheet 只能拿到值，这些一律看不出来）
     if method == "sheet_meta":
         wb = _get_wb(path)
@@ -411,6 +470,8 @@ def handle(method, params):
             "number_formats": [ws.cell(row=row, column=c).number_format for c in cols],
             "value_types": [type(ws.cell(row=row, column=c).value).__name__ for c in cols],
             "merged": sorted(str(r) for r in ws.merged_cells.ranges),
+            # 图表以类名列表返回（BarChart/LineChart/…）：光看单元格数据看不出表里有没有图
+            "charts": [type(c).__name__ for c in getattr(ws, "_charts", [])],
             "comments": sorted(
                 c.coordinate for r in ws.iter_rows() for c in r if c.comment is not None
             ),

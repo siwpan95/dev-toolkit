@@ -267,7 +267,15 @@ export class TableService extends Service {
   freezePanes(path, sheet, cell) {
     return this.bridge.call('freeze_panes', { path, sheet, cell })
   }
-  // 读工作表元信息（冻结窗格 / 数字格式 / 值类型）：给"验证导出文件真实形态"用
+  // 图表：把趋势长在表里（openpyxl 原生图表对象，不是图片）。
+  // spec 用显式行列号而不是 A1 字符串（解析带中文/空格的表名引用是经典坑），形如：
+  //   { type: 'col'|'bar'|'line'|'pie', title, anchor: 'F2', data_sheet, height, width,
+  //     cats: { col, min_row, max_row },
+  //     series: [ { col, min_row, max_row, title_from_data: true } ] }
+  addChart(path, sheet, spec = {}) {
+    return this.bridge.call('add_chart', { path, sheet, ...spec })
+  }
+  // 读工作表元信息（冻结窗格 / 数字格式 / 值类型 / 图表）：给"验证导出文件真实形态"用
   sheetMeta(path, sheet, row) {
     return this.bridge.call('sheet_meta', { path, sheet, row })
   }
