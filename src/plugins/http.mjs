@@ -1,0 +1,237 @@
+// HttpService —— 本地接入层，挂到 ctx.http
+// 只用 node:http（零新增 npm 依赖）：静态托管 web/ + REST 控制 + SSE 推送。
+// 安全：默认只监听 127.0.0.1；静态目录做路径穿越防护；不代理任意路径。
+import { Service } from 'cordis'
+import { createServer } from 'node:http'
+import { readFile, stat } from 'node:fs/promises'
+import { resolve, extname, join, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const WEB_ROOT = resolve(__dirname, '../../web')
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+}
+
+const MAX_BODY = 1 << 20
+
+export class HttpService extends Service {
+  static provide = 'http'
+  static inject = ['store', 'timer']
+
+  constructor(ctx, config) {
+    super(ctx, 'http')
+    this.config = config || {}
+    // 优先级：环境变量（CLI 透传）> cordis.json 配置 > 内置默认
+    this.host = process.env.POMODMER_HOST || this.config.host || '127.0.0.1'
+    // 注意：端口 0（系统分配空闲端口）必须保留，不能用 || 吞掉
+    const envPort = process.env.POMODMER_PORT
+    this.port = envPort ? Number(envPort) : (this.config.port === 0 ? 0 : Number(this.config.port) || 5173)
+    this.open = process.env.POMODMER_OPEN === '0' ? false : this.config.open !== false
+    this.server = null
+    this.clients = new Set()
+  }
+
+  [Service.init]() {
+    this.server = createServer((req, res) => this._handle(req, res))
+    // 每秒 tick -> SSE 广播（前端只渲染，不自己推进时间）
+    this._offTick = null
+    const onTick = (state) => this._broadcast('tick', state)
+    const onPhase = (p) => this._broadcast('phase', p)
+    const onSession = (s) => this._broadcast('session', s)
+    const onSettings = (s) => this._broadcast('settings', s)
+    this.ctx.on('pomodoro/tick', onTick)
+    this.ctx.on('pomodoro/phase', onPhase)
+    this.ctx.on('pomodoro/session', onSession)
+    this.ctx.on('pomodoro/settings', onSettings)
+
+    return new Promise((resolveReady, rejectReady) => {
+      this.server.on('error', (e) => {
+        this.ctx.logger.warn('http: 服务错误 %s', e.message)
+        rejectReady(e)
+      })
+      this.server.listen(this.port, this.host, () => {
+        const addr = this.server.address()
+        this.port = addr.port
+        this.url = 'http://' + this.host + ':' + this.port + '/'
+        this.ctx.logger.info('http: 番茄钟已启动 -> %s', this.url)
+        resolveReady()
+      })
+    }).then(() => () => {
+      // 关停：先断 SSE 连接，再关服务器
+      for (const res of this.clients) {
+        try { res.end() } catch { /* ignore */ }
+      }
+      this.clients.clear()
+      if (this.server) this.server.close()
+      this.ctx.logger.info('http: 服务已关闭')
+    })
+  }
+
+  // ---------- 路由 ----------
+  async _handle(req, res) {
+    const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'))
+    const path = url.pathname
+
+    try {
+      if (path === '/api/events') return this._sse(req, res)
+      if (path.startsWith('/api/')) return await this._api(req, res, path, url)
+      return await this._static(res, path)
+    } catch (e) {
+      this.ctx.logger.warn('http: %s %s 失败 %s', req.method, path, e.message)
+      return this._json(res, 500, { error: e.message })
+    }
+  }
+
+  async _api(req, res, path, url) {
+    const timer = this.ctx.timer
+    const store = this.ctx.store
+    const json = (code, body) => this._json(res, code, body)
+
+    if (path === '/api/state' && req.method === 'GET') {
+      return json(200, {
+        settings: store.settings,
+        tasks: store.tasks,
+        runtime: timer.state(),
+      })
+    }
+
+    if (path === '/api/settings' && req.method === 'PATCH') {
+      const body = await this._body(req)
+      return json(200, { settings: store.settings, runtime: timer.setSettings(body || {}) })
+    }
+
+    if (path.startsWith('/api/timer/') && req.method === 'POST') {
+      const action = path.slice('/api/timer/'.length)
+      const body = req.headers['content-length'] ? await this._body(req) : {}
+      switch (action) {
+        case 'start': return json(200, timer.start((body && body.taskId) || undefined))
+        case 'pause': return json(200, timer.pause())
+        case 'resume': return json(200, timer.resume())
+        case 'toggle': return json(200, timer.toggle((body && body.taskId) || undefined))
+        case 'reset': return json(200, timer.reset())
+        case 'skip': return json(200, timer.skip())
+        case 'void': return json(200, timer.voidCurrent((body && body.reason) || 'void'))
+        default: return json(404, { error: '未知动作: ' + action })
+      }
+    }
+
+    if (path === '/api/tasks') {
+      if (req.method === 'GET') return json(200, { tasks: store.tasks })
+      if (req.method === 'POST') {
+        const body = await this._body(req)
+        return json(200, { task: timer.addTask(body && body.title, body && body.estimate) })
+      }
+    }
+
+    if (path.startsWith('/api/tasks/')) {
+      const id = decodeURIComponent(path.slice('/api/tasks/'.length))
+      if (req.method === 'PATCH') {
+        const body = await this._body(req)
+        const t = timer.updateTask(id, body || {})
+        return t ? json(200, { task: t }) : json(404, { error: '任务不存在' })
+      }
+      if (req.method === 'DELETE') {
+        return timer.deleteTask(id) ? json(200, { ok: true }) : json(404, { error: '任务不存在' })
+      }
+    }
+
+    if (path === '/api/sessions' && req.method === 'GET') {
+      const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 1000)
+      return json(200, { sessions: store.sessions.slice(-limit) })
+    }
+
+    return json(404, { error: '未找到: ' + path })
+  }
+
+  // ---------- SSE ----------
+  _sse(req, res) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    res.write('retry: 3000\n\n')
+    this._send(res, 'hello', this.ctx.timer.state())
+    this.clients.add(res)
+    req.on('close', () => {
+      this.clients.delete(res)
+    })
+  }
+
+  _send(res, event, data) {
+    try {
+      res.write('event: ' + event + '\n')
+      res.write('data: ' + JSON.stringify(data) + '\n\n')
+    } catch {
+      this.clients.delete(res)
+    }
+  }
+
+  _broadcast(event, data) {
+    for (const res of this.clients) this._send(res, event, data)
+  }
+
+  // ---------- 静态资源 ----------
+  async _static(res, path) {
+    let rel = path === '/' ? 'index.html' : decodeURIComponent(path).replace(/^\/+/, '')
+    const full = resolve(WEB_ROOT, rel)
+    // 路径穿越防护：解析后必须仍在 web/ 内
+    if (full !== WEB_ROOT && !full.startsWith(WEB_ROOT + sep)) {
+      return this._json(res, 403, { error: '禁止访问' })
+    }
+    try {
+      const st = await stat(full)
+      if (st.isDirectory()) return this._static(res, join(path, 'index.html'))
+      const buf = await readFile(full)
+      res.writeHead(200, {
+        'Content-Type': MIME[extname(full).toLowerCase()] || 'application/octet-stream',
+        'Cache-Control': 'no-cache',
+      })
+      res.end(buf)
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('404 Not Found: ' + path)
+    }
+  }
+
+  // ---------- 工具 ----------
+  _body(req) {
+    return new Promise((ok, no) => {
+      let size = 0
+      const chunks = []
+      req.on('data', (c) => {
+        size += c.length
+        if (size > MAX_BODY) { no(new Error('请求体过大')); req.destroy(); return }
+        chunks.push(c)
+      })
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8').trim()
+        if (!raw) return ok({})
+        try { ok(JSON.parse(raw)) } catch { no(new Error('请求体不是合法 JSON')) }
+      })
+      req.on('error', no)
+    })
+  }
+
+  _json(res, code, body) {
+    const s = JSON.stringify(body)
+    res.writeHead(code, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(s),
+      'Cache-Control': 'no-store',
+    })
+    res.end(s)
+  }
+}
+
+export default HttpService

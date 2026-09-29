@@ -1,84 +1,129 @@
-# Cordis 表格小应用（Cordis 内核 + OpenPyXL）
+# Pomodmer —— Cordis 内核 + 本地 Web UI 的番茄钟
 
-基于 **Cordis（Node.js 插件框架）作为应用内核**，
-表格能力交给 **Python + OpenPyXL**，两者通过 **JSON-RPC stdio 桥** 连接。
+> 由 **cordis-table-app v1.0.0** 改造（2026-09-29 回滚到 v1.0.0 后转向番茄钟）。
+> 表格能力（Python + OpenPyXL）保留为**可选插件**，不再默认拉起。
+> 规划与执行记录见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。
 
-> 即 `cordis-host-python-bridge` 模式：Cordis 宿主负责编排/插件化，Python 进程负责实际
-> 的 Excel 读写；宿主不碰 Excel，Python 不碰编排。
+一个跑在本机的番茄钟：**计时权威在 Node 服务端，浏览器只负责渲染**。
+刷新页面、切到后台、关掉标签页都不会让计时出错；进程被强杀重启后也不会"凭空补时"。
 
 ## 许可证
 
-本项目以 **MIT License** 开源（见 [LICENSE](./LICENSE)），版权归 `siwpan` 所有。
-可自由使用、修改、分发，仅需保留版权与许可声明。
+MIT License（见 [LICENSE](./LICENSE)），版权归 `siwpan` 所有。
+
+## 快速开始
+
+```bash
+npm install            # 只装 cordis / loader / logger-console（已装可跳过）
+npm run pom            # 启动番茄钟，自动打开 http://127.0.0.1:5173/
+npm run smoke          # 冒烟测试（内核 + 番茄钟端到端）
+```
+
+启动参数：
+
+```bash
+node src/pom.mjs --port 8080        # 换端口（或环境变量 POMODMER_PORT）
+node src/pom.mjs --no-open          # 不自动开浏览器（或 POMODMER_OPEN=0）
+node src/pom.mjs --config cordis.table.json   # 换插件清单
+```
 
 ## 架构
 
 ```
-Cordis 宿主 (Node.js)
-  ├─ Context                      src/boot.mjs       进程根上下文
-  ├─ @cordisjs/plugin-loader      声明式插件宿主（读 cordis.json 的 entries）
-  ├─ ConsoleExporter              日志导出器（否则 loader 失败静默）
-  └─ TableService extends Service 挂到 ctx.table     src/plugins/table.mjs
-        └─ JsonRpcBridge (stdio)  src/core/bridge.mjs
-              └─ python/rpc_server.py   OpenPyXL 工作者（零依赖 stdlib 协议层）
+浏览器（零框架，web/）                       只渲染：按 endAt 插值画进度环与倒计时
+   │  POST /api/...（控制）      ▲  SSE /api/events（每秒 tick + 阶段事件）
+   ▼                             │
+Cordis 宿主（Node.js 22，零新增 npm 依赖）
+  ├─ ctx.store    src/plugins/store.mjs     JSON 原子落盘（data/store.json）
+  ├─ ctx.timer    src/plugins/timer.mjs     番茄钟状态机 + 权威计时
+  └─ ctx.http     src/plugins/http.mjs      node:http 静态托管 + REST + SSE
+  （可选）ctx.table  src/plugins/table.mjs ──JSON-RPC stdio──▶ python/rpc_server.py（OpenPyXL）
 ```
 
-- `cordis.json` 是插件清单（唯一条目入口）：`{ "entries": [ { id, name, config } ] }`，
-  其中 `name` 是相对项目根（baseUrl）的插件模块路径。
-- 通过 loader 加载的插件 = `TableService`（构造器插件），它 `provide('table')`，对外暴露
-  `ctx.table` 的一系列表格方法（createWorkbook / writeRows / styleHeader / readSheet / save ...）。
-- 这些方法经 `JsonRpcBridge` 以"一行一 JSON-RPC"转发给 Python worker，由 OpenPyXL 执行。
+- `cordis.json` 是插件清单（声明式入口）；`cordis.table.json` 只挂表格插件（xlsx 能力按需启用）。
+- 三个服务的加载顺序由 `inject` 依赖图推导：`store → timer → http`，无需手动编排。
 
-## 源码来源
+## 番茄工作法规则（落地实现）
 
-Cordis 内核由 `npm install` 安装（`cordis` / `@cordisjs/plugin-loader` / `@cordisjs/plugin-logger-console`），
-与 `package.json` 中声明的版本一致。`vendor/cordis-main/` 仅用于在本机保留一份框架源码镜像，
-**已被 `.gitignore` 排除，不随仓库分发**（第三方内核源码不入仓，见仓库卫生门禁）。
+| 规则 | 实现 |
+|---|---|
+| 专注 25 分钟 / 短休 5 分钟 / 每 4 个番茄长休 15–30 分钟 | `settings.focusMs / shortMs / longMs / longEvery`，均可在 UI 设置面板改 |
+| 番茄不可分割，提前结束不算完成 | `skip` 记录 `completed=false, reason='skipped'`；`round` 不增加 |
+| 中断即作废 | `void` 记录 `reason='void'`，当前番茄归零 |
+| 系统休眠/进程挂起不静默补时 | tick 空档 > 10s 判定为挂起 → 当前番茄按作废处理（`reason='suspend'`） |
+| 退出期间到点不算完成 | 重启恢复时记录 `reason='shutdown'` 且 `completed=false` |
 
-## 运行
+## 计时为什么准
 
-```bash
-# 进入本项目根目录（任意路径均可，无盘符硬编码）
-npm install            # 装 cordis / loader / logger-console（已装可跳过）
+1. **不累加 tick 次数**：进度永远现算 `remaining = endAt - now`，`endAt` 是绝对时刻。
+2. **不用 `setInterval`**：递归 `setTimeout` 且对齐到整秒边界（目标时间固定），不累积漂移。
+3. **时钟分工**：`Date.now()`（墙钟）负责开始/结束时刻与落盘；
+   `performance.now()`（单调钟）只用于调度耗时观测。
+4. **前端不推进时间**：SSE 每秒下发 `endAt` 与服务端 `now`，浏览器按本地插值渲染。
 
-# 演示：生成 output/cordis-packages.xlsx（含两张表）
-npm start
+## HTTP API
 
-# 通用生成：JSON -> xlsx
-npm run gen -- --json sample.json --out output/sample.xlsx --sheet Data
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/state` | 全量快照（settings / tasks / runtime / 今日统计） |
+| GET | `/api/events` | SSE：`hello` 快照 + 每秒 `tick` + `phase` / `session` / `settings` 事件 |
+| POST | `/api/timer/start` `pause` `resume` `toggle` `reset` `skip` `void` | 控制 |
+| PATCH | `/api/settings` | 改时长与开关（`focusMs` 等，非法值被拒） |
+| GET / POST | `/api/tasks` | 任务列表 / 新增 |
+| PATCH / DELETE | `/api/tasks/:id` | 改任务 / 删任务 |
+| GET | `/api/sessions?limit=100` | 历史会话 |
+
+## 数据
+
+`data/store.json`（已 gitignore，属个人专注记录）：
+
+```jsonc
+{
+  "settings": { "focusMs": 1500000, "shortMs": 300000, "longMs": 900000, "longEvery": 4, ... },
+  "tasks":    [ { "id", "title", "estimate", "spent", "done", "createdAt" } ],
+  "sessions": [ { "id", "type", "taskId", "plannedMs", "startAt", "endAt", "actualMs", "completed", "interrupts", "reason" } ],
+  "runtime":  { "phase", "running", "endAt", "remainingMs", "startedAt", "plannedMs", "round", "currentTaskId", "interrupts" }
+}
 ```
 
-> **Python 解释器自动发现**（无需硬编码路径，换机即用）：
-> 1. `cordis.json` 里 table 条目的 `config.pythonBin`；
-> 2. 环境变量 `PYTHON_BIN`；
-> 3. 扫描系统 `PATH` + 常见安装目录（Windows `C:/Python3XX`、`%LOCALAPPDATA%/Programs/Python/...`，
->    macOS/Linux `/usr/bin/python3`、`/opt/homebrew/bin/python3` 等），挑第一个能 `import openpyxl` 的；
-> 4. 兜底回退到 `PATH` 里的 `python3` / `python`。
->
-> 推荐直接 `pip install openpyxl`（≥3.1），然后让程序自动发现即可。
-
-## 设计要点（与 Cordis rc.10 实测一致）
-
-- `ctx.plugin()` / `loader.create()` 的效果是**异步执行**的，注册后必须 `await` 一次，服务才会挂上。
-- Cordis **没有 `ctx.stop()`**；根 fiber 的 dispose 语义是"重启"。正确关停 = 逆序 `await entry.fiber.dispose()`
-  顶层入口，触发各服务的清理函数（此处 = 杀掉 Python worker），再兜底强杀。
-- Python worker 的 stdout **只走 JSON-RPC**，所有日志/异常栈走 stderr，避免污染协议通道。
-- 每个 RPC 方法 try/except 兜住，返回 JSON-RPC error，保证子进程不死。
+写入是**原子**的（写 `.tmp` 再 `rename`）；数据文件损坏时自动备份为 `.broken-<ts>` 并回退默认配置。
 
 ## 目录
 
 ```
-cordis-table-app/
-├─ LICENSE                   MIT 许可证
-├─ cordis.json              插件清单（声明式入口）
-├─ python/rpc_server.py     OpenPyXL 工作者（JSON-RPC over stdio）
-├─ src/
-│  ├─ boot.mjs              宿主启动/关停（入口共用）
-│  ├─ core/bridge.mjs       JsonRpcBridge（stdio 行分隔 JSON-RPC）
-│  ├─ plugins/table.mjs     TableService（挂 ctx.table，含 Python 自发现）
-│  ├─ demo.mjs              端到端演示（包清单表 + 演示表）
-│  ├─ cli.mjs               通用 JSON -> xlsx 工具
-│  └─ _smoke.mjs            冒烟测试（Cordis 内核可用性）
-├─ vendor/cordis-main/      Cordis 内核源码镜像（可选，gitignore 排除）
-└─ output/                 生成的 xlsx 产物（gitignore 排除）
+pomodmer/
+├─ LICENSE / README.md / docs/POMODORO-PLAN.md
+├─ cordis.json              插件清单（默认：store + timer + http）
+├─ cordis.table.json        插件清单（可选：仅 table，xlsx 能力）
+├─ web/                     index.html / app.js / style.css（零框架前端）
+├─ python/rpc_server.py     OpenPyXL 工作者（可选能力用）
+└─ src/
+   ├─ pom.mjs               应用入口
+   ├─ boot.mjs              宿主启动/关停（入口/CLI/测试共用）
+   ├─ core/bridge.mjs       JsonRpcBridge（stdio 行分隔 JSON-RPC）
+   ├─ plugins/store.mjs     StoreService（ctx.store）
+   ├─ plugins/timer.mjs     TimerService（ctx.timer）
+   ├─ plugins/http.mjs      HttpService（ctx.http）
+   ├─ plugins/table.mjs     TableService（ctx.table，可选）
+   ├─ demo.mjs / cli.mjs    xlsx 演示与命令行工具（走 cordis.table.json）
+   ├─ _smoke.mjs            Cordis 内核冒烟
+   └─ _smoke_pom.mjs        番茄钟端到端冒烟（真实 HTTP）
 ```
+
+## 设计要点（Cordis 4.0.0-rc.10 实测）
+
+- `ctx.plugin()` / `loader.create()` 的效果是**异步执行**的，注册后必须 `await`，服务才会挂上。
+- 服务的初始化用 `[Service.init]()`，返回清理函数（或 Promise of 清理函数），
+  fiber dispose 时自动执行 —— 定时器、HTTP server、SSE 连接都在这里回收。
+- Cordis **没有 `ctx.stop()`**；根 fiber 的 dispose 语义是"重启"。正确关停 =
+  逆序 `await entry.fiber.dispose()` 顶层入口（`boot.mjs` 的 `stopHost` 已封装）。
+- 服务间只通过 `ctx.<key>` 查找，不 import 具体实现；依赖用 `static inject = [...]` 声明。
+
+## 路线图
+
+- **P0（已完成）**：Cordis 宿主 + store/timer/http 三插件 + 本地 Web UI + 端到端冒烟。
+- **P1**：任务清单铺到 UI、桌面通知、统计与热力图、中断记录、主题与快捷键。
+- **P2**：周报 xlsx 导出（复用 ctx.table）、白噪音、迷你窗、单文件分发。
+- **P3（可选）**：Electron 桌面壳（托盘 / 置顶 / 全局快捷键），仅 devDependencies，失败不影响主功能。
+
+详见 [`docs/POMODORO-PLAN.md`](./docs/POMODORO-PLAN.md)。

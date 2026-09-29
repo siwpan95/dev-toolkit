@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodmer · 番茄钟</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='11' fill='%23E24B4A'/%3E%3Cpath d='M16 7c0-3 2-5 5-5' stroke='%23639922' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <h1>Pomodmer</h1>
+    <span class="badge" id="phaseBadge">待开始</span>
+  </header>
+
+  <section class="dial">
+    <svg viewBox="0 0 280 280" class="ring" aria-hidden="true">
+      <circle class="ring-bg" cx="140" cy="140" r="120"></circle>
+      <circle class="ring-fg" id="ringFg" cx="140" cy="140" r="120" transform="rotate(-90 140 140)"></circle>
+    </svg>
+    <div class="dial-center">
+      <div class="time" id="time">25:00</div>
+      <div class="sub" id="roundInfo">第 1 个番茄</div>
+    </div>
+  </section>
+
+  <section class="controls">
+    <button class="btn primary" id="btnToggle">开始</button>
+    <button class="btn" id="btnReset">重置</button>
+    <button class="btn" id="btnSkip">跳过</button>
+    <button class="btn danger" id="btnVoid">作废</button>
+  </section>
+
+  <section class="stats" id="stats">
+    <div><span class="num" id="stDone">0</span><span class="lbl">今日完成</span></div>
+    <div><span class="num" id="stMin">0</span><span class="lbl">专注分钟</span></div>
+    <div><span class="num" id="stInt">0</span><span class="lbl">中断</span></div>
+  </section>
+
+  <details class="panel">
+    <summary>设置</summary>
+    <div class="grid">
+      <label>专注（分钟）<input type="number" id="cfgFocus" min="1" max="180" step="1"></label>
+      <label>短休息（分钟）<input type="number" id="cfgShort" min="1" max="60" step="1"></label>
+      <label>长休息（分钟）<input type="number" id="cfgLong" min="1" max="120" step="1"></label>
+      <label>每几个番茄长休<input type="number" id="cfgEvery" min="1" max="12" step="1"></label>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="cfgAutoBreak"> 番茄结束自动开始休息</label>
+      <label><input type="checkbox" id="cfgAutoFocus"> 休息结束自动开始专注</label>
+      <label><input type="checkbox" id="cfgSound"> 提示音</label>
+      <label><input type="checkbox" id="cfgTick"> 每秒滴答声</label>
+      <label><input type="checkbox" id="cfgNotify"> 桌面通知</label>
+    </div>
+    <button class="btn small" id="btnSave">保存设置</button>
+    <span class="hint" id="saveHint"></span>
+  </details>
+
+  <p class="foot">
+    计时权威在 Node 服务端（<code>endAt</code> 绝对时刻），本页只渲染不推进时间；
+    刷新、切后台、关标签页都不会影响计时。快捷键：空格 开始/暂停。
+  </p>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>

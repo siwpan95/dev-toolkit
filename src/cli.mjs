@@ -43,7 +43,8 @@ async function main() {
     process.exit(2)
   }
 
-  const ctx = await bootHost()
+  // table 插件已改为可选：xlsx 生成显式走 cordis.table.json
+  const ctx = await bootHost({ config: 'cordis.table.json' })
   const table = ctx.table
   await table.createWorkbook(out, values.sheet)
   let r = 1

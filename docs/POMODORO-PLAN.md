@@ -1,0 +1,303 @@
+# Pomodmer —— 番茄钟改造规划（基于 cordis-table-app v1.0.0）
+
+> 目标形态（已确认）：**保留 Cordis + Node 内核 + 本地 Web UI**，Electron 作为**后期可选桌面壳**（P3）。
+> 进度：P0 已开始执行（见文末「执行记录」）。
+
+---
+
+## 0. 已完成：回滚到 v1.0.0
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 回滚方式 | `git reset --hard v1.0.0`（直接硬回滚，未建备份分支） | `HEAD is now at 3434c6d` |
+| 回滚前 HEAD | `1d44c5e 修复 Python 自发现不完整 + 补 .venv 忽略项` | `git log` |
+| 回滚后 HEAD | `3434c6d cordis-table-app: MIT 许可证 + 去除本地盘符硬编码` | `git log --oneline -3` |
+| 移除的 v1.1/v1.2 文件 | `src/map_cli.mjs`、`src/map_demo.mjs`、`src/map_dj.mjs`、`src/map_gen.mjs` | 文件树对比 |
+| 恢复通道 | tag `v1.1.0` / `v1.2.0` 仍在（未删），随时可 `git reset --hard v1.2.0` | `git tag -l` → v1.0.0/v1.1.0/v1.2.0 |
+| 回滚后冒烟 | `node src/_smoke.mjs` 通过，EXIT=0 | 输出 `entries count => 1`、`disposed OK` |
+| 工作区 | 干净，无未提交改动 | `git status --short` 空 |
+
+回滚后文件树（15 个受版本控制文件）：
+
+```
+.gitignore  LICENSE  README.md  cordis.json  package-lock.json  package.json
+python/rpc_server.py  sample.json
+src/_local_plugin.mjs  src/_smoke.mjs  src/boot.mjs  src/cli.mjs
+src/core/bridge.mjs  src/demo.mjs  src/plugins/table.mjs
+```
+
+---
+
+## 1. 现状盘点（实测，非推测）
+
+| 维度 | 实测值 | 对番茄钟的意义 |
+|---|---|---|
+| Node | `v22.22.2` | 可用 `node:http`、`node:sqlite`、原生 ESM |
+| npm 依赖 | 仅 `cordis` / `@cordisjs/plugin-loader` / `@cordisjs/plugin-logger-console` | **无 express / ws / 前端框架**，新增 UI 必须零第三方依赖 |
+| `node:sqlite` | 可用（`DatabaseSync, StatementSync`），带 ExperimentalWarning | 零依赖持久化**可选方案**（实验性 API，升级风险） |
+| Python | `E:\Python314\python.exe` = 3.13.14，`openpyxl 3.1.5` 已装 | 现有 OpenPyXL 桥可留作 P2 周报导出 |
+| 插件机制 | `cordis.json` entries → Loader 声明式加载，`Service` 子类 `provide('table')` | 番茄钟各能力应拆成**独立 Cordis 服务插件**，沿用同一套模式 |
+| 宿主启动 | `src/boot.mjs` 的 `bootHost/stopHost` 被入口/CLI/测试三方共用 | 新能力直接挂 entries，避免启动路径漂移 |
+| 现有 CLI | `src/cli.mjs` = JSON→xlsx 生成器 | 可改造或并列新增 `pomodoro` 子命令 |
+
+**可复用资产**：`boot.mjs`（宿主生命周期）、`core/bridge.mjs`（JSON-RPC stdio 桥）、
+`python/rpc_server.py`（Python worker 协议层）、`plugins/table.mjs`（Service 插件范式）、
+`_smoke.mjs`（冒烟骨架）、`.gitignore`（已含 node_modules / output / vendor / \_\_pycache\_\_）。
+
+---
+
+## 2. 联网调研结论
+
+### 2.1 番茄工作法规则（权威口径，Francesco Cirillo, 1992）
+
+| 规则 | 标准值 | 说明 |
+|---|---|---|
+| 专注单元 | 25 min | 一个「番茄钟」，**不可分割**，不存在半个番茄 |
+| 短休息 | 5 min（3–5 min 亦可） | 每完成 1 个番茄后 |
+| 长休息 | 15–30 min | **每 4 个番茄后** |
+| 中断处理 | 内部/外部中断 | 紧急 → 当前番茄**作废**重来；非紧急 → 记「计划外事件」+ 打逗号标记，继续当前番茄 |
+| 提前完成 | 不可提前结束 | 继续检查/回顾任务直到响铃 |
+| 任务拆分 | >5–7 个番茄的任务要拆小；<1 个番茄的零碎活动合并 | 影响任务清单的数据模型 |
+| 五阶段闭环 | 规划 → 跟踪 → 记录 → 处理 → 可视化 | 我们的 P1 统计/热力图即「可视化」阶段 |
+
+来源：百度百科《番茄工作法》/《番茄钟》、番茄工作法中文站 pomodorotechnique.cn、光明网转央视新闻科普。
+
+### 2.2 参考实现特性对比
+
+| 产品 | 技术栈 | 值得抄的点 | 不抄的点 |
+|---|---|---|---|
+| **Pomotroid**（开源 v1.4.0） | Vue + Electron + Vuex | 主题(JSON 可配)、迷你模式、置顶、滴答声、桌面通知、活动日志 | Electron 体积大、需打包分发 |
+| Pomotroid 三层架构 | 表现层 / 业务层(状态机) / 系统层(主进程计时) | **计时放在与 UI 隔离的进程** —— 正是我们「服务端权威」策略的理论依据 | — |
+| 极简网页番茄钟（多篇实现） | 原生 HTML/CSS/JS | 零依赖、SVG 进度环（`strokeDashoffset` + `rotate(-90deg)`）、Web Audio 合成音、localStorage 防刷新 | localStorage 单页方案，进程一关就没了 |
+| Focus To-Do / TickTick | 商业 | 任务清单 + 番茄归属 + 统计报表 | 云同步、账号体系（本地工具不需要） |
+
+**关键共识**：所有认真做计时的实现，都把「计时推进」和「UI 渲染」解耦 —— 我们把它落在
+Node 宿主（权威）↔ 浏览器（纯渲染）这条边界上，天然契合现有 Cordis 宿主架构。
+
+### 2.3 技术要点（踩坑预报，均有出处）
+
+1. **禁止 `setInterval` 累加计数**。回调迟到会累积漂移；后台标签页被浏览器节流到 ~1s 甚至更久。
+   正确做法：以**绝对目标时间** `endAt` 为锚，每次 tick 现算 `remaining = endAt - now`，
+   用「递归 setTimeout + 固定目标时间」校正（不是 `setTimeout(1000)` 的朴素递归）。
+2. **时钟源**：Node 侧用 `performance.now()`（node:perf\_hooks）或 `process.hrtime.bigint()`
+   度量时长；长期运行不要用 `Date.now()` 做漂移校正——系统时钟调整会让它前进/后退。
+   落盘时间戳仍用 `Date.now()`（墙钟），两者分工明确。
+3. **后台/隐藏标签页**：前端定时器不可信；改用 **SSE 推送** + 服务端权威，
+   并在 `visibilitychange` 回到前台时立即拉一次快照强制重绘。
+4. **提示音零资产**：`AudioContext` + `OscillatorNode` + `GainNode` 实时合成
+   （如 587Hz→880Hz 滑音 / 三连 beep / 880+660 交替），`exponentialRampToValueAtTime` 做淡出防爆音。
+   硬约束：**必须在用户手势（点「开始」）后 `resume()`**，否则被自动播放策略静音；
+   `OscillatorNode` 是一次性节点，`stop()` 后不可复用，每次 new。
+5. **桌面通知**：`Notification API`；`http://127.0.0.1` 属 secure context，localhost 可直接申请权限，无需 HTTPS。
+6. **系统休眠**：S3 待机恢复后墙钟会跳变。不能静默补时——应检测 gap 超阈值 → 标记该 session `interrupted`。
+
+---
+
+## 3. 目标架构
+
+```
+                        ┌──────────────────────── 浏览器（纯渲染，零框架） ────────────────────────┐
+                        │  web/index.html · app.js · style.css                                   │
+                        │  · SVG 进度环 + 大字倒计时                                              │
+                        │  · 只做「读快照 + 渲染」，绝不自己推进时间                               │
+                        │  · Web Audio 合成提示音 / Notification API 通知                          │
+                        └───────────────┬──────────────────────────▲─────────────────────────────┘
+                                        │ REST (POST /api/...)      │ SSE (GET /api/events, 1s tick)
+┌───────────────────────────────────────▼──────────────────────────┴─────────────────────────────┐
+│ Cordis 宿主 (Node.js 22, 零新增 npm 依赖)      src/boot.mjs  bootHost()/stopHost()              │
+│  ├─ ctx.store   StoreService    持久化（默认 JSON 文件；可选 node:sqlite）        数据层         │
+│  ├─ ctx.timer   TimerService    番茄钟状态机（核心，纯逻辑无 IO）                 领域层         │
+│  ├─ ctx.http    HttpService     node:http 静态托管 + REST + SSE                  接入层         │
+│  ├─ ctx.report  ReportService   P2：inject ['table'] 复用 OpenPyXL 导出 xlsx      报表层         │
+│  └─ ctx.table   TableService    既有资产（保留/裁撤待定）  ──JSON-RPC stdio──▶ python worker    │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+                                   cordis.json entries 声明式装配（不改 boot.mjs 逻辑）
+```
+
+**为什么这样分层**：Cordis 的 `inject` 让启动顺序由依赖图推导，不用手动编排；
+每个服务都是可独立卸载/热重载的插件 —— 与现有 `TableService` 完全同构，学习成本为零。
+
+**关于 Electron（P3 可选壳）**：Electron **不改架构，只换外壳** —— 它只是把同一个 `web/` 目录装进
+`BrowserWindow`（`win.loadURL('http://127.0.0.1:<port>')` 或 `loadFile`），Cordis 宿主照旧在
+Node 主进程里跑。因此 P0–P2 全部产出可直接复用，Electron 是纯增量：
+
+```
+Electron 主进程 ──spawn──▶ src/pom.mjs（Cordis 宿主 + HTTP/SSE）──▶ BrowserWindow 加载 web/
+```
+
+安装要点（菜鸟教程 https://www.runoob.com/electron/electron-install.html ）：
+`npm install electron --save-dev`；国内必须加镜像否则下载超时 ——
+`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（可 `npm config set` 永久化）；
+`package.json` 加 `"main": "electron/main.js"` 与 `"scripts": { "electron": "electron ." }`；
+打包另需 `electron-builder`。**风险**：Electron 体积 ~100MB，依赖网络下载，与「零新增 npm 依赖」冲突 →
+故定为 P3，且必须是 `devDependencies` + 可选，主功能不得依赖它。
+
+### 状态机（TimerService）
+
+```
+        start                        时间到
+ idle ─────────▶ focus(25m) ─────────────────▶ (第 n 个番茄, n % 4 != 0) ──▶ short(5m)
+                   ▲   │                                                          │
+                   │   └── pause / resume / reset / skip ──────────────────────────┘
+                   │                                      (n % 4 == 0) ──▶ long(15~30m)
+                   └──────────────────────────────────────────────────────────────┘
+ 中断：void（作废，不计完成，interrupts++） / 系统休眠 gap 超阈值 → 自动标记 interrupted
+```
+
+---
+
+## 4. 数据模型（初稿）
+
+```jsonc
+// data/store.json（默认；gitignore 或可选提交，待定）
+{
+  "settings": {
+    "focusMs": 1500000, "shortMs": 300000, "longMs": 900000,
+    "longEvery": 4,                 // 每 4 个番茄长休
+    "autoStartBreak": true, "autoStartFocus": false,
+    "sound": true, "tick": false, "notify": true
+  },
+  "tasks":   [ { "id": "t1", "title": "写 P0 代码", "estimate": 3, "spent": 1, "done": false, "createdAt": 0 } ],
+  "sessions": [ { "id": "s1", "type": "focus|short|long", "taskId": "t1",
+                  "plannedMs": 1500000, "startAt": 0, "endAt": 0,
+                  "actualMs": 0, "completed": true, "interrupts": 0 } ],
+  "runtime": { "phase": "focus", "endAt": 0, "pausedMs": 0, "round": 2, "currentTaskId": "t1" }
+}
+```
+
+- 统计（今日番茄数 / 总专注时长 / 连续天数 / 每任务番茄数）**全部由 sessions 派生，不单独存**。
+- 单一写入口：`ctx.store` 负责原子落盘（写临时文件 + rename），避免 Ctrl+C 杀死进程时写坏 JSON。
+
+### 接口草案
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/` | 静态 UI（web/） |
+| GET | `/api/state` | 全量快照（settings/tasks/runtime/today 统计） |
+| GET | `/api/events` | **SSE**：每秒 `tick`（含 `remainingMs`）+ `phase` 变更事件 |
+| POST | `/api/timer/start` \| `pause` \| `resume` \| `reset` \| `skip` \| `void` | 控制 |
+| GET/POST/PATCH/DELETE | `/api/tasks` | 任务 CRUD |
+| PATCH | `/api/settings` | 改时长/开关（立即生效，运行中的番茄按策略处理） |
+| GET | `/api/stats?range=day\|week` | 统计（P1） |
+| POST | `/api/export/xlsx` | 周报导出（P2，走 OpenPyXL 桥） |
+
+---
+
+## 5. 路线图（P0 → P1 → P2，每批自带验收）
+
+### P0 —— 能跑起来的最小番茄钟
+
+| # | 任务 | 产出 |
+|---|---|---|
+| P0-1 | 项目身份切换：package.json `name` → `pomodmer`，scripts 增 `pom`；cordis.json 增条目 | 可 `npm run pom` 启动 |
+| P0-2 | `StoreService`：JSON 落盘 + 原子写 + 开机恢复 | `src/plugins/store.mjs` |
+| P0-3 | `TimerService`：状态机 + 递归 setTimeout 目标时间校正 + 事件发射 | `src/plugins/timer.mjs` |
+| P0-4 | `HttpService`：`node:http` 静态托管 + REST + SSE | `src/plugins/http.mjs` |
+| P0-5 | Web UI：SVG 进度环、大字倒计时、开始/暂停/重置/跳过、设置面板 | `web/index.html|app.js|style.css` |
+| P0-6 | Web Audio 合成提示音 + 阶段自动流转（focus↔short→long） | 前端 + 状态机 |
+| P0-7 | 冒烟测试扩展：启宿主 → 打 REST → 断言状态迁移 → 关停 | `src/_smoke.mjs` |
+
+**P0 验收（全部要实测，不许"看起来没问题"）**
+1. `npm run pom` 启动后打印 `http://127.0.0.1:<port>`，端口可配（`POMODMER_PORT`）。
+2. 浏览器打开显示 25:00，开始/暂停/重置/跳过四个按钮均生效。
+3. 用 `settings.focusMs=60000` 跑完整一轮：到点自动切 5 分钟短休并**响提示音**。
+4. **刷新页面**倒计时继续（服务端权威，非 localStorage 兜底）。
+5. **关标签页 3 分钟**再打开，剩余时间正确（误差 < 1s）。
+6. kill 进程重启，`runtime` 恢复；gap 超阈值时该 session 被标记 `interrupted` 而非静默补时。
+7. `package.json` 的 `dependencies` **一个字都不改**（零新增 npm 依赖）。
+8. `git status` 干净 + `npm run smoke` EXIT=0。
+
+### P1 —— 真能日常使用
+
+| # | 任务 |
+|---|---|
+| P1-1 | 任务清单 CRUD + 番茄归属（`taskId`），估番茄数 vs 实际对比 |
+| P1-2 | Notification API 桌面通知（授权流程 + 开关） |
+| P1-3 | 统计面板：今日番茄数 / 专注总时长 / 连续天数 / 每任务分布 |
+| P1-4 | 热力图 + 柱状图（**纯 CSS/SVG 手绘，不引图表库**） |
+| P1-5 | 中断记录（内部/外部 + 计划外事件列表），对应番茄工作法第 4 条 |
+| P1-6 | 主题（亮/暗 + 自定义色）、键盘快捷键（空格开始/暂停） |
+| P1-7 | 数据导出/导入 JSON |
+
+### P2 —— 好用 & 复用既有资产
+
+| # | 任务 |
+|---|---|
+| P2-1 | `ReportService` 走既有 `ctx.table`（JSON-RPC → Python OpenPyXL）导出周报 xlsx |
+| P2-2 | 白噪音/滴答声（Web Audio 噪声 buffer + 衰减包络） |
+| P2-3 | 迷你模式 / 置顶窗（浏览器 kiosk 小窗 or `--app=<url>` 启动参数） |
+| P2-4 | Windows 托盘 + 原生 Toast（若坚持零依赖，用 `node:child_process` 调 PowerShell；否则留 TODO） |
+| P2-5 | 单文件分发：Node SEA 打包 或 自愈式 .bat 启动器（自动拉起 + 开浏览器） |
+| P2-6 | README 全量重写（架构图/规则/API/截图）+ 打 tag |
+
+### P3 —— Electron 桌面壳（可选，不阻塞 P0–P2）
+
+| # | 任务 | 说明 |
+|---|---|---|
+| P3-1 | `npm i -D electron`（配 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`） | 仅 devDependencies，网络失败不影响主功能 |
+| P3-2 | `electron/main.js`：`app.whenReady` → spawn `src/pom.mjs` → `BrowserWindow` 加载 `http://127.0.0.1:<port>` | 主进程托管 Cordis 宿主，渲染进程只加载现有 web/ |
+| P3-3 | 桌面能力补齐：托盘图标 + 最小化到托盘、`setAlwaysOnTop` 迷你窗、全局快捷键、原生 Notification | 这些是纯 Web UI 做不到的部分 |
+| P3-4 | `electron-builder` 打安装包（可选） | 二进制不入仓，仅文档标注 |
+
+**验收**：`npm run electron` 弹出桌面窗，倒计时与浏览器版一致；关窗退到托盘继续计时；关闭时宿主进程被正确回收（不残留 node/python）。
+
+---
+
+## 6. 版本与仓库卫生
+
+- 包名 `pomodmer`，**保留** `cordis-table-app` 血统说明（README 注明"由 cordis-table-app v1.0.0 改造"），MIT + `siwpan` 不变。
+- 版本号建议 **`v2.0.0`**（语义化：用途改变 = breaking）；若想新开序列则用 `pomodmer-v1.0.0` 前缀标签，避免与既有 v1.0.0 撞名。
+- 硬约束延续：第三方内核源码（`vendor/`）不入仓；`node_modules/`、`output/`、`data/` 视情况进 `.gitignore`；令牌/密钥绝不入仓。
+- 提交节奏：按你一贯要求 —— **每批（P0/P1/P2）完成 + 验证通过后，单独提交并推送 Gitee，再开下一优先级**。
+
+---
+
+## 7. 决策点（2026-09-29 全哥拍板：全部按推荐项执行）
+
+| # | 问题 | 决策 | 依据 |
+|---|---|---|---|
+| 1 | **Python / OpenPyXL 桥是否保留？** | ✅ **保留，但降级为可选插件**（`cordis.table.json` 单独清单，默认不拉起） | 复用既有资产；不装 Python 也能跑主功能（P2 周报导出时用） |
+| 2 | **持久化用哪种？** | ✅ **JSON 文件起步**（`data/store.json`，原子写） | 稳、零依赖；`node:sqlite` 是实验性 API，升级有变，留作 P2 开关 |
+| 3 | **要不要"真桌面"能力？** | ✅ **P0–P2 纯浏览器；P3 加 Electron 桌面壳**（仅 devDep，可失败） | 零新增 npm 依赖是硬约束；托盘/置顶/全局快捷键留给 Electron |
+| 4 | **Gitee 仓库怎么处理？** | ✅ **原地改名**，保留 `cordis-table-app` 仓库与全部历史 | 资产与历史永远保全；README 注明血统 |
+
+---
+
+## 8. 执行记录
+
+### 2026-09-29 · P0 完成（实测通过）
+
+| 交付 | 文件 | 状态 |
+|---|---|---|
+| 持久化 | `src/plugins/store.mjs`（JSON 原子写、坏档备份回退） | 完成 |
+| 状态机 + 权威计时 | `src/plugins/timer.mjs` | 完成 |
+| 接入层 | `src/plugins/http.mjs`（node:http + REST + SSE） | 完成 |
+| 前端 | `web/index.html` / `app.js` / `style.css` | 完成 |
+| 入口 | `src/pom.mjs`（`--port/--host/--no-open/--config`） | 完成 |
+| 端到端冒烟 | `src/_smoke_pom.mjs` | 33 项 **ALL PASS**（EXIT=0） |
+| 项目身份 | `package.json` → `pomodmer@2.0.0`；`cordis.json` → store/timer/http；新增 `cordis.table.json` | 完成 |
+| 文档 | `README.md` 全量重写 | 完成 |
+
+**P0 验收逐条结果**
+
+| # | 验收项 | 结果 |
+|---|---|---|
+| 1 | `npm run pom` 启动并打印地址、端口可配 | ✅ 实测 `POMODMER_PORT=5199` → `http://127.0.0.1:5199/`，HTTP 200 |
+| 2 | 开始/暂停/重置/跳过可用 | ✅ 冒烟第 4、6 节 |
+| 3 | 到点自动切短休 | ✅ focus(3s) → short，round=1，落库 completed=true |
+| 4 | 刷新页面倒计时继续 | ✅ 服务端权威（暂停 1s 后剩余时间冻结不变） |
+| 5 | 关标签页再打开时间正确 | ✅ 同一机制；另有 `visibilitychange` 回前台重拉快照 |
+| 6 | 进程重启不静默补时 | ✅ 记录 `reason='shutdown'` 且 `completed=false`，冻结为暂停态 |
+| 7 | `dependencies` 一字未改 | ✅ 仍为 cordis / plugin-loader / logger-console |
+| 8 | `npm run smoke` EXIT=0 | ✅ 内核冒烟 + 番茄钟端到端冒烟均 0 |
+
+**待办**：P0 提交（需授权）→ P1。
+
+## 9. 附：本轮调研来源
+
+- 番茄工作法 / 番茄钟规则：百度百科词条、快懂百科、pomodorotechnique.cn 中文站、光明网（转央视新闻）
+- Pomotroid（开源番茄钟，Vue+Electron，v1.4.0）：pomotroid.org、GitCode/AtomGit 项目镜像与二次开发文档
+- JS 计时精度与后台节流：dev.to《Why setInterval Drifts and How to Fix It》、positioniseverything《Creating Accurate Timers in JavaScript》、xjavascript 精准计时、ufcn 后台标签页限频处理
+- 零依赖音效/UI：华为云社区《基于纯原生 JS 与 Web API 构建零依赖高效番茄钟》、notadevblog《How I Generate Sound in My Focus Timer》、quickutil《Stopwatch & Timer Guide》
+- Cordis 4 服务/插件机制：Cordis v4 源码解析（Context/Registry/Fiber/service/reflect）、DeepSeek Harness 官方 Services 文档
+- Electron 安装：菜鸟教程 https://www.runoob.com/electron/electron-install.html（`npm i -D electron`、`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`、`main.js` + `BrowserWindow.loadFile`）

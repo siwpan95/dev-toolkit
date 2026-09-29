@@ -1,15 +1,20 @@
 {
-  "name": "cordis-table-app",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "pomodmer",
+  "version": "2.0.0",
+  "description": "Cordis 内核 + 本地 Web UI 的番茄钟计时器（Pomodoro timer）",
+  "main": "src/pom.mjs",
   "scripts": {
-    "start": "node src/demo.mjs",
+    "start": "node src/pom.mjs",
+    "pom": "node src/pom.mjs",
     "demo": "node src/demo.mjs",
     "gen": "node src/cli.mjs",
-    "smoke": "node src/_smoke.mjs"
+    "smoke": "node src/_smoke.mjs && node src/_smoke_pom.mjs"
   },
-  "keywords": [],
+  "keywords": [
+    "pomodoro",
+    "cordis",
+    "timer"
+  ],
   "author": "siwpan",
   "license": "MIT",
   "type": "module",

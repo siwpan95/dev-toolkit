@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {
+      "id": "table",
+      "name": "./src/plugins/table.mjs"
+    }
+  ]
+}

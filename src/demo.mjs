@@ -51,7 +51,8 @@ function printTable(title, rows, limit = 12) {
 }
 
 async function main() {
-  const ctx = await bootHost()
+  // table 插件已改为可选：xlsx 演示显式走 cordis.table.json
+  const ctx = await bootHost({ config: 'cordis.table.json' })
   const table = ctx.table
 
   const info = await table.ping()

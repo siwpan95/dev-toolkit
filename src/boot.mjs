@@ -26,7 +26,9 @@ export async function bootHost(options = {}) {
   const loader = ctx.loader
 
   // 3) 读 cordis.json，逐条创建入口（table 服务即其中之一）
-  const cfgPath = options.config || 'cordis.json'
+  // 插件清单路径：显式入参 > 环境变量 POMODMER_CONFIG > 默认 cordis.json（番茄钟）
+  // 需要 xlsx 能力时用 cordis.table.json（table 插件已成可选，不再默认拉起 python worker）
+  const cfgPath = options.config || process.env.POMODMER_CONFIG || 'cordis.json'
   const entries = JSON.parse(readFileSync(cfgPath, 'utf8')).entries || []
   for (const entry of entries) {
     await loader.create({ ...entry })
