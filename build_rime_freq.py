@@ -35,7 +35,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DICT_DIR = os.path.join(BASE_DIR, "dictionary")
 RIME_OUT_DIR = os.path.join(DICT_DIR, "rime_ice")
 
-DEFAULT_SRC = r"G:\shurufa\full_compiled\cn_dicts"
+# 默认词库源：**不写死盘符**（铁律 5）—— 优先环境变量 RIME_SRC；未设置时由 main() 提示用 --src 指定
+DEFAULT_SRC = os.environ.get("RIME_SRC", "")
 SOURCE_FILES = ["base.dict.yaml", "ext.dict.yaml"]
 
 # 词条合法性：CJK 汉字 + 常用 ASCII（跳过含生僻/特殊符号的词条）
@@ -96,7 +97,7 @@ def load_existing_words():
 
 def main():
     parser = argparse.ArgumentParser(description="构建 rime-ice 词频产物")
-    parser.add_argument("--src", default=None, help="cn_dicts 目录（默认探测 G:\\shurufa）")
+    parser.add_argument("--src", default=None, help="cn_dicts 目录（默认读环境变量 RIME_SRC）")
     parser.add_argument("--min-weight", type=int, default=100,
                         help="扩充词最小权重（默认 100）")
     parser.add_argument("--max-add", type=int, default=300000,
@@ -107,8 +108,8 @@ def main():
     if not src:
         src = DEFAULT_SRC
         if not os.path.isdir(src):
-            print(f"[错误] 默认词库源不存在: {src}")
-            print("  请用 --src 指定 rime-ice cn_dicts 目录，或从 "
+            print(f"[错误] 默认词库源不存在（环境变量 RIME_SRC = {src!r}）")
+            print("  请用 --src 指定 rime-ice cn_dicts 目录，或设置 RIME_SRC，或从 "
                   "https://github.com/iDvel/rime-ice 下载后解压。")
             sys.exit(1)
     if not os.path.isdir(src):
