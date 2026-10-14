@@ -10,3 +10,7 @@ node_modules/
 output/
 saves/
 *.log
+
+# 生成的清单：含本机绝对路径，且可由 tools/bootstrap.mjs 按需再生成，不入库
+helloworld-cordis/config/cordis.yml
+helloworld-cordis/config/languages.yml
