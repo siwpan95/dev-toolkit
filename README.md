@@ -13,7 +13,7 @@
   把上面 76 种语言收编为一等组件，支持运行时热插拔与跨语言共识校验。详见其自身 README。
 
 ## 运行方式与依赖
-- 运行：`F:\Python314\python.exe main.py`
+- 运行：`python main.py`
 - 依赖：无（仅标准库 tkinter）
 
 ## 测试状态
