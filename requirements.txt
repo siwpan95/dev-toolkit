@@ -1,0 +1,4 @@
+# fonts dependencies (auto-generated 2026-08-20)
+beautifulsoup4
+curl_cffi
+requests

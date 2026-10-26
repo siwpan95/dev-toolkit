@@ -1,0 +1,9 @@
+{
+  "save_dir": "G:/repos/fonts/etc",
+  "concurrency": 3,
+  "delay": 1.5,
+  "max_pages": 50,
+  "google_api_key": "",
+  "use_curl": true,
+  "respect_robots": true
+}
