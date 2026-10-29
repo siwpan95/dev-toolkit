@@ -1,0 +1,13 @@
+{
+  "button": "left",
+  "click_type": "single",
+  "interval_ms": 100,
+  "jitter_ms": 0,
+  "repeat_mode": "infinite",
+  "repeat_count": 100,
+  "location_mode": "current",
+  "fixed_x": 0,
+  "fixed_y": 0,
+  "start_delay_ms": 0,
+  "hotkey": "space"
+}
