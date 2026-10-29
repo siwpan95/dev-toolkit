@@ -1,0 +1,165 @@
+{
+    "app": {
+        "title": "人机验证演示系统",
+        "width": 900,
+        "height": 680,
+        "theme": "light"
+    },
+    "captcha_types": [
+        {
+            "id": "text",
+            "name": "文字验证码",
+            "description": "在干扰背景中识别文字字符",
+            "difficulty": "简单"
+        },
+        {
+            "id": "slider",
+            "name": "滑块验证码",
+            "description": "拖动滑块填补缺口完成验证",
+            "difficulty": "中等"
+        },
+        {
+            "id": "puzzle",
+            "name": "拼图验证码",
+            "description": "数字华容道：点击与空白相邻的块进行滑动，按顺序排列",
+            "difficulty": "中等"
+        },
+        {
+            "id": "click",
+            "name": "点击验证码",
+            "description": "按顺序点击指定文字/图案",
+            "difficulty": "中等"
+        },
+        {
+            "id": "rotate",
+            "name": "旋转验证码",
+            "description": "旋转图片至正确方向",
+            "difficulty": "困难"
+        },
+        {
+            "id": "drag_sort",
+            "name": "拖拽排序验证码",
+            "description": "将乱序元素按正确顺序排列",
+            "difficulty": "困难"
+        },
+        {
+            "id": "word_order",
+            "name": "语序点选验证码",
+            "description": "按正确语序依次点击文字",
+            "difficulty": "中等"
+        },
+        {
+            "id": "difference_click",
+            "name": "差异点击验证码",
+            "description": "找出与其他不同的图形并点击",
+            "difficulty": "简单"
+        },
+        {
+            "id": "nine_grid",
+            "name": "九宫格验证码",
+            "description": "点击所有符合要求的图案",
+            "difficulty": "中等"
+        },
+        {
+            "id": "sms_mock",
+            "name": "短信验证码（模拟）",
+            "description": "模拟短信验证码接收与输入流程",
+            "difficulty": "简单"
+        },
+        {
+            "id": "scratch_card",
+            "name": "刮刮卡验证码",
+            "description": "刮开涂层获取验证码并输入",
+            "difficulty": "简单"
+        },
+        {
+            "id": "area_click",
+            "name": "面积验证",
+            "description": "点击面积最大或最小的图形",
+            "difficulty": "中等"
+        },
+        {
+            "id": "voice_mock",
+            "name": "语音验证码（模拟）",
+            "description": "模拟语音验证码播放与输入流程",
+            "difficulty": "简单"
+        },
+        {
+            "id": "font_recognize",
+            "name": "字体识别验证码",
+            "description": "识别不同字体渲染的文字",
+            "difficulty": "困难"
+        },
+        {
+            "id": "behavior_mock",
+            "name": "无感验证（模拟）",
+            "description": "模拟行为分析无感验证流程",
+            "difficulty": "简单"
+        }
+    ],
+    "text_captcha": {
+        "width": 280,
+        "height": 100,
+        "char_count": 4,
+        "font_size_min": 36,
+        "font_size_max": 48,
+        "colors": ["#1a1a2e", "#16213e", "#0f3460", "#533483", "#e94560"],
+        "bg_colors": ["#f8f9fa", "#e9ecef", "#dee2e6", "#ced4da"],
+        "noise_lines": 8,
+        "noise_dots": 100
+    },
+    "slider_captcha": {
+        "width": 320,
+        "height": 180,
+        "slider_width": 50,
+        "slider_height": 50,
+        "tolerance": 5,
+        "track_color": "#e0e0e0",
+        "slider_color": "#2196F3",
+        "success_color": "#4CAF50",
+        "fail_color": "#f44336"
+    },
+    "puzzle_captcha": {
+        "width": 320,
+        "height": 180,
+        "piece_size": 50,
+        "grid_cols": 4,
+        "grid_rows": 3,
+        "tolerance": 15,
+        "bg_color": "#f5f5f5",
+        "grid_color": "#ddd",
+        "piece_colors": ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD"]
+    },
+    "click_captcha": {
+        "width": 320,
+        "height": 220,
+        "target_count": 4,
+        "char_size": 28,
+        "colors": ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c"],
+        "bg_color": "#ffffff",
+        "highlight_color": "#FFD700",
+        "instruction": "请按顺序点击："
+    },
+    "rotate_captcha": {
+        "width": 280,
+        "height": 280,
+        "image_size": 200,
+        "snap_angle": 5,
+        "rotation_steps": 360,
+        "bg_color": "#f8f9fa",
+        "ring_color": "#dee2e6",
+        "handle_color": "#2196F3"
+    },
+    "drag_sort_captcha": {
+        "width": 400,
+        "height": 200,
+        "item_count": 5,
+        "item_width": 70,
+        "item_height": 70,
+        "item_spacing": 10,
+        "colors": ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#FF9F43", "#A29BFE"],
+        "bg_color": "#f5f5f5",
+        "slot_color": "#e0e0e0",
+        "slot_border": "#bdbdbd"
+    }
+}
