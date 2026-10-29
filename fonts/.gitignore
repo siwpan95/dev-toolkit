@@ -1,0 +1,24 @@
+# 字体资源与运行环境不入库（体积大 / 可重建）
+# 仓库只入库工具代码；字体本体与压缩包属本地资源池，按 README 在本地保留。
+
+# 本地字体库（数百个 TTF/TTC/OTF）
+本地/
+
+# 字体压缩包与下载缓存
+etc/
+download_fonts/
+fonts/
+
+# 运行环境
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# 工具/编辑器
+.DS_Store
+.vscode/
+.idea/
+*.log
