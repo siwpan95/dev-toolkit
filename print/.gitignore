@@ -1,0 +1,15 @@
+﻿
+
+# 未跟踪产物/输出治理（2026-08-28）
+*.spec
+build/
+dictionary/
+dist/
+release/
+
+本地/
+
+# Python 缓存与索引缓存（2026-08-28 治理）
+__pycache__/
+*.pyc
+cache/
