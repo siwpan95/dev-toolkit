@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>远子学姐的三题故事 · 提词器</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header id="toolbar">
+    <div class="brand">远子学姐的三题故事 · 提词器</div>
+    <div class="controls">
+      <button id="btn-draw" title="远子出题 (N)">远子出题</button>
+      <button id="btn-play" title="播放/暂停 (空格)">▶ 开始</button>
+      <button id="btn-reset" title="回到开头">⟲ 重置</button>
+      <button id="btn-full" title="全屏">⛶ 全屏</button>
+      <label>速度 <input id="speed" type="range" min="10" max="200" value="45" /></label>
+      <label>字号 <input id="font" type="range" min="24" max="120" value="48" /></label>
+      <label><input id="mirror" type="checkbox" /> 镜像</label>
+    </div>
+  </header>
+
+  <section id="source-bar">
+    <span class="topic-label">词源</span>
+    <span id="sources" class="sources"></span>
+  </section>
+
+  <section id="topic-bar">
+    <span class="topic-label">三题</span>
+    <span id="topics" class="topics">
+      <span class="chip">—</span><span class="chip">—</span><span class="chip">—</span>
+    </span>
+  </section>
+
+  <main id="stage">
+    <div
+      id="script"
+      contenteditable="true"
+      data-placeholder="在此粘贴或输入三题故事正文……
+
+提示：点「远子出题」随机抽取三个题目；点「开始」全屏滚动；
+空格 播放/暂停，↑ / ↓ 调速，M 镜像，N 重新出题。"
+    ></div>
+  </main>
+
+  <div id="progress"><div id="progress-bar"></div></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

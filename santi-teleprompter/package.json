@@ -1,0 +1,74 @@
+{
+  "name": "santi-teleprompter",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "远子学姐的三题故事 · 提词器（Electron + cordis）",
+  "author": "siwpan <13122653937@163.com>",
+  "license": "MIT",
+  "homepage": "https://gitee.com/siwpan/santi-teleprompter",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/siwpan/santi-teleprompter.git"
+  },
+  "main": "src/electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "web": "node src/index.js",
+    "dist": "electron-builder --win nsis portable",
+    "dist:nsis": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "cordis": "4.0.0-rc.8",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.siwpan.santi.teleprompter",
+    "productName": "远子学姐的三题故事提词器",
+    "executableName": "SantiTeleprompter",
+    "copyright": "Copyright © 2026 siwpan",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "package.json",
+      "cordis.yml",
+      "public/**/*",
+      "src/**/*",
+      "pools/**/*",
+      "!**/*.map",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,LICENSE,license}"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": "x64"
+        },
+        {
+          "target": "portable",
+          "arch": "x64"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "远子学姐的三题故事提词器",
+      "artifactName": "SantiTeleprompter-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "SantiTeleprompter-${version}-portable.${ext}"
+    }
+  }
+}
