@@ -1,0 +1,14 @@
+{
+  "name": "cordis-table-kit",
+  "syncedAt": "2026-09-29T03:09:48.935Z",
+  "source": {
+    "repo": "https://gitee.com/siwpan/cordis-table-app.git",
+    "dir": "../cordis-table-app",
+    "commit": "bb69ff3233286b8868f854b7b4a5e95027875429"
+  },
+  "files": {
+    "src/core/bridge.mjs": "sha256:95605ab371aee6f982984298b4468e6b7fac31b4dd1e8a38ecba6ea43fae509e",
+    "src/plugins/table.mjs": "sha256:ea965460cd7738906b1ae06edeb8bfdc6890511da5804e80cb63277277e28777",
+    "python/rpc_server.py": "sha256:c8d11c067b4b952746717983f3a98669f15cb7ab5d7b882a7ea48551789095c7"
+  }
+}

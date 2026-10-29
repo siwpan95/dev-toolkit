@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodmer · 番茄钟</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='11' fill='%23E24B4A'/%3E%3Cpath d='M16 7c0-3 2-5 5-5' stroke='%23639922' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <h1>Pomodmer</h1>
+    <div class="top-right">
+      <span class="badge" id="phaseBadge">待开始</span>
+      <button class="btn tiny" id="btnTheme" title="切换亮色/暗色">暗色</button>
+    </div>
+  </header>
+
+  <section class="dial">
+    <svg viewBox="0 0 280 280" class="ring" aria-hidden="true">
+      <circle class="ring-bg" cx="140" cy="140" r="120"></circle>
+      <circle class="ring-fg" id="ringFg" cx="140" cy="140" r="120" transform="rotate(-90 140 140)"></circle>
+    </svg>
+    <div class="dial-center">
+      <div class="time" id="time">25:00</div>
+      <div class="sub" id="roundInfo">第 1 个番茄</div>
+    </div>
+  </section>
+
+  <p class="cur-task">当前任务：<span id="curTask">未选择</span></p>
+
+  <section class="controls">
+    <button class="btn primary" id="btnToggle">开始</button>
+    <button class="btn" id="btnReset">重置</button>
+    <button class="btn" id="btnSkip">跳过</button>
+    <button class="btn danger" id="btnVoid">作废</button>
+    <button class="btn" id="btnMini" title="弹出一个只显示倒计时的独立小窗">迷你窗</button>
+  </section>
+
+  <section class="stats">
+    <div><span class="num" id="stDone">0</span><span class="lbl">今日完成</span></div>
+    <div><span class="num" id="stMin">0</span><span class="lbl">专注分钟</span></div>
+    <div><span class="num" id="stInt">0</span><span class="lbl">中断</span></div>
+    <div><span class="num" id="stStreak">0</span><span class="lbl">连续天数</span></div>
+  </section>
+
+  <details class="panel" open>
+    <summary>任务清单</summary>
+    <div class="row">
+      <input type="text" id="taskTitle" placeholder="要专注做的事…" maxlength="80">
+      <input type="number" id="taskEst" min="1" max="20" step="1" value="1" title="预估番茄数">
+      <button class="btn small" id="btnAddTask">添加</button>
+    </div>
+    <ul class="task-list" id="taskList"></ul>
+    <p class="empty" id="taskEmpty">还没有任务。添加一个，番茄完成后会自动记到它头上。</p>
+  </details>
+
+  <details class="panel">
+    <summary>统计</summary>
+    <div class="chart">
+      <div class="chart-title">最近 7 天（番茄数）</div>
+      <svg id="bars" viewBox="0 0 320 90" class="bars" aria-label="最近 7 天番茄数柱状图"></svg>
+    </div>
+    <div class="chart">
+      <div class="chart-title">专注热力图（最近 12 周）</div>
+      <svg id="heat" viewBox="0 0 320 80" class="heat" aria-label="专注热力图"></svg>
+    </div>
+    <div class="chart-title">任务番茄数（实际 / 预估）</div>
+    <ul class="bar-list" id="taskBars"></ul>
+    <div class="row">
+      <button class="btn small" id="btnReport">导出周报 xlsx</button>
+      <span class="hint" id="reportHint"></span>
+    </div>
+    <p class="hint-block" id="reportNote"></p>
+  </details>
+
+  <details class="panel">
+    <summary>中断记录（计划外事件）</summary>
+    <p class="hint-block">番茄钟进行中想起别的事？先记下来，番茄照跑 —— 这是番茄工作法处理非紧急中断的标准做法。</p>
+    <div class="row">
+      <input type="text" id="intNote" placeholder="什么事打断了你…" maxlength="80">
+      <button class="btn small" id="btnIntIn">内部中断</button>
+      <button class="btn small" id="btnIntOut">外部中断</button>
+    </div>
+    <ul class="event-list" id="unplannedList"></ul>
+    <p class="empty" id="unplannedEmpty">暂无记录。</p>
+  </details>
+
+  <details class="panel">
+    <summary>设置</summary>
+    <div class="grid">
+      <label>专注（分钟）<input type="number" id="cfgFocus" min="1" max="180" step="1"></label>
+      <label>短休息（分钟）<input type="number" id="cfgShort" min="1" max="60" step="1"></label>
+      <label>长休息（分钟）<input type="number" id="cfgLong" min="1" max="120" step="1"></label>
+      <label>每几个番茄长休<input type="number" id="cfgEvery" min="1" max="12" step="1"></label>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="cfgAutoBreak"> 番茄结束自动开始休息</label>
+      <label><input type="checkbox" id="cfgAutoFocus"> 休息结束自动开始专注</label>
+      <label><input type="checkbox" id="cfgSound"> 提示音</label>
+      <label><input type="checkbox" id="cfgTick"> 每秒滴答声</label>
+      <label><input type="checkbox" id="cfgNotify"> 桌面通知</label>
+    </div>
+    <label class="sel">白噪音
+      <select id="cfgAmbient">
+        <option value="off">关闭</option>
+        <option value="white">白噪音</option>
+        <option value="brown">棕噪音（低沉）</option>
+      </select>
+    </label>
+    <div class="checks">
+      <label><input type="checkbox" id="cfgToast"> Windows 原生气泡通知（实验性，借 PowerShell）</label>
+    </div>
+    <button class="btn small" id="btnSave">保存设置</button>
+    <span class="hint" id="saveHint"></span>
+    <div class="row io">
+      <button class="btn small" id="btnExport">导出数据 JSON</button>
+      <button class="btn small" id="btnExportXlsx">导出数据 xlsx</button>
+      <button class="btn small" id="btnMonth">导出月报 xlsx</button>
+      <button class="btn small" id="btnImport">导入数据 JSON</button>
+      <input type="file" id="fileImport" accept="application/json,.json" hidden>
+      <button class="btn small" id="btnImportXlsx">回灌 xlsx</button>
+      <input type="file" id="fileImportXlsx" accept=".xlsx" hidden>
+      <button class="btn small" id="btnApplyXlsx" hidden>确认导入</button>
+    </div>
+    <div class="row io">
+      <label class="hint" for="csvSheet">CSV/TSV</label>
+      <select id="csvSheet">
+        <option value="会话">会话</option>
+        <option value="每日">每日</option>
+        <option value="任务">任务</option>
+        <option value="概览">概览</option>
+        <option value="计划外事件">计划外事件</option>
+      </select>
+      <button class="btn small" id="btnCsv">导出 CSV</button>
+      <button class="btn small" id="btnTsv">导出 TSV</button>
+    </div>
+    <div class="row io">
+      <label class="hint" for="rangeFrom">自定义区间</label>
+      <input type="date" id="rangeFrom">
+      <span class="hint">~</span>
+      <input type="date" id="rangeTo">
+      <button class="btn small" id="btnRange">导出区间 xlsx</button>
+    </div>
+    <span class="hint" id="ioHint"></span>
+  </details>
+
+  <p class="foot">
+    计时权威在 Node 服务端（<code>endAt</code> 绝对时刻），本页只渲染不推进时间；
+    刷新、切后台、关标签页都不会影响计时。快捷键：空格 开始/暂停。
+  </p>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>
