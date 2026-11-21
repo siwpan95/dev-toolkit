@@ -1,10 +1,20 @@
+# dev-toolkit · 依赖声明
+#
+# 两版合并（2026-11-21）：
+#   · 远端 11-15 repocheck r6 门禁修复版
+#   · 本地 AST 实测版（tools/publish_area_deps.py）
+# 取并集，避免任一方依赖丢失。
 
-# allin-repocheck-r6-fix (2026-11-15)
-pywin32
+beautifulsoup4
 cryptography
 curl-cffi
-PyMuPDF
 keyboard
+openpyxl
+Pillow
 pyautogui
+PyMuPDF
 pynput
 pyperclip
+pywin32
+requests
+uno

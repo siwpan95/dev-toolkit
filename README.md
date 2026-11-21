@@ -18,3 +18,10 @@ python main.py         # 入口见各目录 README
 ## 许可
 
 MIT（见 [LICENSE](LICENSE)）。
+
+
+## 快速开始
+
+- 本项目为免安装形态：克隆后直接运行（见下方用法）。
+
+<!-- 补写记账：dev-toolkit · 本段由 allin 仓 tools/publish_area_readme_sections.py 依据本仓自身事实补写 -->
